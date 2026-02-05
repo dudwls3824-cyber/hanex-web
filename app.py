@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import urllib.parse, os, base64
+import plotly.graph_objects as go  # 선+막대 복합 차트를 위해 추가
 
 # 1. 페이지 설정
 st.set_page_config(page_title="남이천1센터 물동량 Dash Board", layout="wide")
@@ -15,7 +16,7 @@ def get_b64(p):
         return base64.b64encode(open(p, "rb").read()).decode()
     return None
 
-# 3. 디자인 테마 (로고 클릭 버튼 & 배경 유지)
+# 3. 디자인 테마
 def apply_theme():
     b64 = get_b64(C_IMG)
     bg_css = f"""
@@ -30,7 +31,6 @@ def apply_theme():
         [data-testid='stSidebar'] { background-color: #FFFFFF !important; border-top: 25px solid #E30613 !important; border-bottom: 35px solid #002D56 !important; }
         [data-testid='stMetric'] { background-color: white !important; padding: 20px !important; border-radius: 15px !important; box-shadow: 0 4px 15px rgba(0,0,0,0.1) !important; border-left: 8px solid #E30613 !important; }
         h1, h2, h3 { color: #002D56 !important; font-weight: 900 !important; }
-        
         .logo-container { position: relative; width: 100%; height: 80px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
         .stButton>button {
             position: absolute !important; top: 0 !important; left: 0 !important;
@@ -42,7 +42,6 @@ def apply_theme():
         </style>
         """, unsafe_allow_html=True)
 
-# 비밀번호 로직을 제거하고 바로 테마 적용
 apply_theme()
 
 # --- 데이터 로드 ---
@@ -71,7 +70,6 @@ if df is not None:
     cols2026 = [c for c in df.columns if "2026-" in c]
     comps = list(dict.fromkeys(df['화주사'].tolist()))
     
-    # --- 사이드바 ---
     with st.sidebar:
         st.markdown('<div class="logo-container">', unsafe_allow_html=True)
         if st.button("HOME", key="home_btn_final"):
@@ -89,7 +87,6 @@ if df is not None:
         mon = st.selectbox("📅 조회 월 선택", [f"{i:02d}" for i in range(1, 13)])
         t_cols = [c for c in cols2026 if c.startswith(f"2026-{mon}")]
 
-    # --- 메인 화면 ---
     if st.session_state.view == 'home':
         st.title("📊 남이천1센터 물동량 Dash Board")
         st.markdown(f"### 🚀 {mon}월 물동량 종합 현황")
@@ -107,7 +104,7 @@ if df is not None:
         st.dataframe(sdf.applymap(lambda x: f"{int(x):,}" if isinstance(x, (int, float)) else x), use_container_width=True, hide_index=True)
 
     else:
-        # --- 상세 페이지: 항목별 막대 그래프 ---
+        # --- 상세 페이지: 막대 + 선 복합 차트 ---
         menu = st.session_state.sel_comp
         L_MAP = {"DKSH L&L":"DKSH L&L_LOGO.png","대호 F&B":"대호 F&B_LOGO.png","덴비코리아":"덴비_LOGO.png","막시무스코리아":"막시무스_LOGO.png","매그니프":"매그니프_LOGO.png","멘소래담":"멘소래담_LOGO.png","머거본":"머거본_LOGO.png","바이오포트코리아":"바이오포트코리아_LOGO.png","시세이도":"시세이도_LOGO.png","유니레버":"유니레버_LOGO.png","커머스파크":"커머스파크_LOGO.png","펄세스":"펄세스_LOGO.png","프로덴티":"프로덴티_LOGO.png","한국프리오":"한국프리오_LOGO.png","헨켈홈케어":"헨켈홈케어_LOGO.png"}
         if menu in L_MAP:
@@ -120,9 +117,35 @@ if df is not None:
             target_rows = cdf['구분'].str.replace(" ","").str.contains('물동량|입고|출고|반품', na=False, case=False)
             df_detail = cdf[target_rows][['구분'] + t_cols].copy()
             df_chart = df_detail.set_index('구분')[t_cols].transpose().applymap(to_n)
-            df_chart.index = df_chart.index.map(lambda x: x.split("-")[-1])
+            df_chart.index = df_chart.index.map(lambda x: x.split("-")[-1]) # 일자 추출
             
-            st.bar_chart(df_chart) # 막대 그래프 적용
+            # Plotly 복합 차트 생성
+            fig = go.Figure()
+
+            # 1. 항목별 막대 추가 (Stacked Bar)
+            for column in df_chart.columns:
+                fig.add_trace(go.Bar(name=column, x=df_chart.index, y=df_chart[column]))
+
+            # 2. 전체 합계 선 추가 (Trend Line)
+            total_sum = df_chart.sum(axis=1)
+            fig.add_trace(go.Scatter(
+                name='일일 합계 추세', 
+                x=df_chart.index, 
+                y=total_sum, 
+                mode='lines+markers',
+                line=dict(color='#E30613', width=3) # 한익스 레드 색상
+            ))
+
+            fig.update_layout(
+                barmode='stack', # 막대를 쌓아서 표현
+                hovermode="x unified",
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                margin=dict(l=20, r=20, t=60, b=20),
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)'
+            )
+
+            st.plotly_chart(fig, use_container_width=True) # 차트 출력
             
             dt = df_detail.copy()
             for c in t_cols: dt[c] = dt[c].apply(lambda x: f"{int(to_n(x)):,}" if to_n(x) != 0 else "-")
