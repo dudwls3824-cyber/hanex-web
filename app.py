@@ -15,7 +15,7 @@ def get_b64(p):
         return base64.b64encode(open(p, "rb").read()).decode()
     return None
 
-# 3. 디자인 테마 (투명 버튼 CSS 추가)
+# 3. 디자인 테마 (투명 버튼을 로고 전체 크기로 확장)
 def apply_theme():
     b64 = get_b64(C_IMG)
     bg_css = f"""
@@ -31,14 +31,16 @@ def apply_theme():
         [data-testid='stMetric'] { background-color: white !important; padding: 20px !important; border-radius: 15px !important; box-shadow: 0 4px 15px rgba(0,0,0,0.1) !important; border-left: 8px solid #E30613 !important; }
         h1, h2, h3 { color: #002D56 !important; font-weight: 900 !important; }
         
-        /* 로고 클릭용 투명 버튼 스타일 */
-        .logo-container { position: relative; cursor: pointer; margin-bottom: 20px; }
+        /* 로고 클릭용 투명 버튼 - 로고 전체 영역(100%) 커버 */
+        .logo-container { position: relative; width: 100%; text-align: center; }
         .stButton>button {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100px;
+            position: absolute; top: 0; left: 0; width: 100% !important; height: 80px !important;
             background: transparent !important; border: none !important; color: transparent !important;
-            z-index: 10;
+            z-index: 99; cursor: pointer;
         }
-        .stButton>button:hover { background: transparent !important; border: none !important; }
+        .stButton>button:hover, .stButton>button:active { 
+            background: transparent !important; border: none !important; color: transparent !important; 
+        }
         </style>
         """, unsafe_allow_html=True)
 
@@ -72,17 +74,17 @@ if df is not None:
     comps = list(dict.fromkeys(df['화주사'].tolist()))
     
     # --- 사이드바 ---
-    # 1. 로고 + 투명 버튼 (클릭 시 홈으로 강제 이동)
     with st.sidebar:
+        # 로고 영역 전체를 버튼으로 감싸기
         st.markdown('<div class="logo-container">', unsafe_allow_html=True)
-        if st.button("HOME_BTN", key="home_btn"):
+        if st.button("HOME", key="home_btn"):
             st.session_state.view = 'home'
-            st.rerun() # 즉시 화면 갱신
+            st.rerun()
         if os.path.exists(H_LOG):
             st.image(H_LOG, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # 2. 화주사 목록 (라디오 버튼에서 HOME 제거)
+        # 화주사 목록 (HOME 없이 화주사만 노출)
         selected = st.radio("📍 화주사 목록", comps, index=None if st.session_state.view == 'home' else comps.index(st.session_state.get('sel_comp', comps[0])))
         
         if selected:
