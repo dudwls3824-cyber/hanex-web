@@ -5,9 +5,6 @@ import urllib.parse, os, base64
 # 1. 페이지 설정
 st.set_page_config(page_title="남이천1센터 물동량 Dash Board", layout="wide")
 
-# --- 보안 설정 ---
-ACCESS_CODE = "1234" 
-
 # 2. 경로 및 이미지 설정
 L_DIR = "LOGO"
 C_IMG = os.path.join(L_DIR, "센터조감도.png")
@@ -18,7 +15,7 @@ def get_b64(p):
         return base64.b64encode(open(p, "rb").read()).decode()
     return None
 
-# 3. 디자인 테마
+# 3. 디자인 테마 (로고 클릭 버튼 & 배경 유지)
 def apply_theme():
     b64 = get_b64(C_IMG)
     bg_css = f"""
@@ -33,6 +30,7 @@ def apply_theme():
         [data-testid='stSidebar'] { background-color: #FFFFFF !important; border-top: 25px solid #E30613 !important; border-bottom: 35px solid #002D56 !important; }
         [data-testid='stMetric'] { background-color: white !important; padding: 20px !important; border-radius: 15px !important; box-shadow: 0 4px 15px rgba(0,0,0,0.1) !important; border-left: 8px solid #E30613 !important; }
         h1, h2, h3 { color: #002D56 !important; font-weight: 900 !important; }
+        
         .logo-container { position: relative; width: 100%; height: 80px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
         .stButton>button {
             position: absolute !important; top: 0 !important; left: 0 !important;
@@ -44,106 +42,90 @@ def apply_theme():
         </style>
         """, unsafe_allow_html=True)
 
-if 'authenticated' not in st.session_state:
-    st.session_state.authenticated = False
+# 비밀번호 로직을 제거하고 바로 테마 적용
+apply_theme()
 
-def login():
-    st.title("🔐 보안 접속")
-    user_input = st.text_input("접속 코드를 입력하세요", type="password")
-    if st.button("접속하기"):
-        if user_input == ACCESS_CODE:
-            st.session_state.authenticated = True
-            st.rerun()
-        else:
-            st.error("접속 코드가 올바르지 않습니다.")
+# --- 데이터 로드 ---
+URL = f"https://docs.google.com/spreadsheets/d/14-mE7GtbShJqAHwiuBlZsVFFg8FKuy5tsrcX92ecToY/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote('구글 데이터')}"
 
-if not st.session_state.authenticated:
-    login()
-else:
-    apply_theme()
-    URL = f"https://docs.google.com/spreadsheets/d/14-mE7GtbShJqAHwiuBlZsVFFg8FKuy5tsrcX92ecToY/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote('구글 데이터')}"
+@st.cache_data(ttl=10)
+def load_data():
+    try:
+        df = pd.read_csv(URL, header=1)
+        df.columns = df.columns.str.strip()
+        return df.dropna(subset=['화주사']) if '화주사' in df.columns else df
+    except: return None
 
-    @st.cache_data(ttl=10)
-    def load_data():
-        try:
-            df = pd.read_csv(URL, header=1)
-            df.columns = df.columns.str.strip()
-            return df.dropna(subset=['화주사']) if '화주사' in df.columns else df
-        except: return None
+def to_n(x):
+    try:
+        v = str(x).replace(',', '').strip()
+        return float(v) if v not in ["", "-", "None", "nan", "NaN"] else 0
+    except: return 0
 
-    def to_n(x):
-        try:
-            v = str(x).replace(',', '').strip()
-            return float(v) if v not in ["", "-", "None", "nan", "NaN"] else 0
-        except: return 0
+df = load_data()
 
-    df = load_data()
+if df is not None:
+    if 'view' not in st.session_state:
+        st.session_state.view = 'home'
 
-    if df is not None:
-        if 'view' not in st.session_state:
+    cols2026 = [c for c in df.columns if "2026-" in c]
+    comps = list(dict.fromkeys(df['화주사'].tolist()))
+    
+    # --- 사이드바 ---
+    with st.sidebar:
+        st.markdown('<div class="logo-container">', unsafe_allow_html=True)
+        if st.button("HOME", key="home_btn_final"):
             st.session_state.view = 'home'
+            st.rerun()
+        if os.path.exists(H_LOG):
+            st.image(H_LOG, use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
-        cols2026 = [c for c in df.columns if "2026-" in c]
-        comps = list(dict.fromkeys(df['화주사'].tolist()))
+        selected = st.radio("📍 화주사 목록", comps, index=None if st.session_state.view == 'home' else (comps.index(st.session_state.sel_comp) if 'sel_comp' in st.session_state else 0))
+        if selected:
+            st.session_state.view = 'detail'
+            st.session_state.sel_comp = selected
+
+        mon = st.selectbox("📅 조회 월 선택", [f"{i:02d}" for i in range(1, 13)])
+        t_cols = [c for c in cols2026 if c.startswith(f"2026-{mon}")]
+
+    # --- 메인 화면 ---
+    if st.session_state.view == 'home':
+        st.title("📊 남이천1센터 물동량 Dash Board")
+        st.markdown(f"### 🚀 {mon}월 물동량 종합 현황")
+        res = []
+        for c in comps:
+            cdf = df[df['화주사'] == c]
+            m = cdf['구분'].str.replace(" ","").str.contains('물동량|입고|출고|반품', na=False, case=False)
+            v_sum = cdf[m][t_cols].applymap(to_n).sum().sum()
+            res.append({"화주사": c, "월 물동량 합계": v_sum})
         
-        with st.sidebar:
-            st.markdown('<div class="logo-container">', unsafe_allow_html=True)
-            if st.button("HOME", key="home_btn_final"):
-                st.session_state.view = 'home'
-                st.rerun()
-            if os.path.exists(H_LOG):
-                st.image(H_LOG, use_container_width=True)
-            st.markdown('</div>', unsafe_allow_html=True)
+        sdf = pd.DataFrame(res)
+        st.metric("📦 센터 전체 물동량 계", f"{int(sdf['월 물동량 합계'].sum()):,}")
+        st.markdown("#### 📈 화주사별 물동량 분석")
+        st.bar_chart(sdf.set_index('화주사'))
+        st.dataframe(sdf.applymap(lambda x: f"{int(x):,}" if isinstance(x, (int, float)) else x), use_container_width=True, hide_index=True)
 
-            selected = st.radio("📍 화주사 목록", comps, index=None if st.session_state.view == 'home' else (comps.index(st.session_state.sel_comp) if 'sel_comp' in st.session_state else 0))
-            if selected:
-                st.session_state.view = 'detail'
-                st.session_state.sel_comp = selected
-
-            mon = st.selectbox("📅 조회 월 선택", [f"{i:02d}" for i in range(1, 13)])
-            t_cols = [c for c in cols2026 if c.startswith(f"2026-{mon}")]
-
-        if st.session_state.view == 'home':
-            st.title("📊 남이천1센터 물동량 Dash Board")
-            st.markdown(f"### 🚀 {mon}월 물동량 종합 현황")
-            res = []
-            for c in comps:
-                cdf = df[df['화주사'] == c]
-                m = cdf['구분'].str.replace(" ","").str.contains('물동량|입고|출고|반품', na=False, case=False)
-                v_sum = cdf[m][t_cols].applymap(to_n).sum().sum()
-                res.append({"화주사": c, "월 물동량 합계": v_sum})
+    else:
+        # --- 상세 페이지: 항목별 막대 그래프 ---
+        menu = st.session_state.sel_comp
+        L_MAP = {"DKSH L&L":"DKSH L&L_LOGO.png","대호 F&B":"대호 F&B_LOGO.png","덴비코리아":"덴비_LOGO.png","막시무스코리아":"막시무스_LOGO.png","매그니프":"매그니프_LOGO.png","멘소래담":"멘소래담_LOGO.png","머거본":"머거본_LOGO.png","바이오포트코리아":"바이오포트코리아_LOGO.png","시세이도":"시세이도_LOGO.png","유니레버":"유니레버_LOGO.png","커머스파크":"커머스파크_LOGO.png","펄세스":"펄세스_LOGO.png","프로덴티":"프로덴티_LOGO.png","한국프리오":"한국프리오_LOGO.png","헨켈홈케어":"헨켈홈케어_LOGO.png"}
+        if menu in L_MAP:
+            p = os.path.join(L_DIR, L_MAP[menu])
+            if os.path.exists(p): st.image(p, width=150)
+        
+        st.markdown(f"## {menu} 상세 현황")
+        cdf = df[df['화주사'] == menu]
+        if not cdf.empty:
+            target_rows = cdf['구분'].str.replace(" ","").str.contains('물동량|입고|출고|반품', na=False, case=False)
+            df_detail = cdf[target_rows][['구분'] + t_cols].copy()
+            df_chart = df_detail.set_index('구분')[t_cols].transpose().applymap(to_n)
+            df_chart.index = df_chart.index.map(lambda x: x.split("-")[-1])
             
-            sdf = pd.DataFrame(res)
-            st.metric("📦 센터 전체 물동량 계", f"{int(sdf['월 물동량 합계'].sum()):,}")
-            st.markdown("#### 📈 화주사별 물동량 분석")
-            st.bar_chart(sdf.set_index('화주사'))
-            st.dataframe(sdf.applymap(lambda x: f"{int(x):,}" if isinstance(x, (int, float)) else x), use_container_width=True, hide_index=True)
-
-        else:
-            # --- 상세 페이지: 항목별 막대 그래프로 수정된 부분 ---
-            menu = st.session_state.sel_comp
-            L_MAP = {"DKSH L&L":"DKSH L&L_LOGO.png","대호 F&B":"대호 F&B_LOGO.png","덴비코리아":"덴비_LOGO.png","막시무스코리아":"막시무스_LOGO.png","매그니프":"매그니프_LOGO.png","멘소래담":"멘소래담_LOGO.png","머거본":"머거본_LOGO.png","바이오포트코리아":"바이오포트코리아_LOGO.png","시세이도":"시세이도_LOGO.png","유니레버":"유니레버_LOGO.png","커머스파크":"커머스파크_LOGO.png","펄세스":"펄세스_LOGO.png","프로덴티":"프로덴티_LOGO.png","한국프리오":"한국프리오_LOGO.png","헨켈홈케어":"헨켈홈케어_LOGO.png"}
-            if menu in L_MAP:
-                p = os.path.join(L_DIR, L_MAP[menu])
-                if os.path.exists(p): st.image(p, width=150)
+            st.bar_chart(df_chart) # 막대 그래프 적용
             
-            st.markdown(f"## {menu} 상세 현황")
-            cdf = df[df['화주사'] == menu]
-            if not cdf.empty:
-                # 1. 항목별 데이터 추출 (입고, 출고, 반품 등)
-                target_rows = cdf['구분'].str.replace(" ","").str.contains('물동량|입고|출고|반품', na=False, case=False)
-                df_detail = cdf[target_rows][['구분'] + t_cols].copy()
-                
-                # 2. 그래프용 데이터 재구성 (Pivot 형태)
-                df_chart = df_detail.set_index('구분')[t_cols].transpose().applymap(to_n)
-                df_chart.index = df_chart.index.map(lambda x: x.split("-")[-1]) # 날짜만 표시
-                
-                # 3. 막대 그래프 출력 (항목별로 색상이 나뉨)
-                st.bar_chart(df_chart)
-                
-                # 상세 표 출력
-                dt = df_detail.copy()
-                for c in t_cols: dt[c] = dt[c].apply(lambda x: f"{int(to_n(x)):,}" if to_n(x) != 0 else "-")
-                st.dataframe(dt.rename(columns=lambda x: x.split("-")[-1] if "2026-" in x else x), use_container_width=True, hide_index=True)
+            dt = df_detail.copy()
+            for c in t_cols: dt[c] = dt[c].apply(lambda x: f"{int(to_n(x)):,}" if to_n(x) != 0 else "-")
+            st.dataframe(dt.rename(columns=lambda x: x.split("-")[-1] if "2026-" in x else x), use_container_width=True, hide_index=True)
 
-    st.sidebar.caption("© 2026 HanExpress Nam-Icheon Center")
+st.sidebar.caption("© 2026 HanExpress Nam-Icheon Center")
