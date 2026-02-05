@@ -15,7 +15,7 @@ def get_b64(p):
         return base64.b64encode(open(p, "rb").read()).decode()
     return None
 
-# 3. 디자인 테마 (기존 디자인 100% 유지)
+# 3. 디자인 테마 (투명 버튼 CSS 추가)
 def apply_theme():
     b64 = get_b64(C_IMG)
     bg_css = f"""
@@ -30,8 +30,15 @@ def apply_theme():
         [data-testid='stSidebar'] { background-color: #FFFFFF !important; border-top: 25px solid #E30613 !important; border-bottom: 35px solid #002D56 !important; }
         [data-testid='stMetric'] { background-color: white !important; padding: 20px !important; border-radius: 15px !important; box-shadow: 0 4px 15px rgba(0,0,0,0.1) !important; border-left: 8px solid #E30613 !important; }
         h1, h2, h3 { color: #002D56 !important; font-weight: 900 !important; }
-        .stDataFrame { background-color: white !important; border-radius: 10px !important; }
-        div.stButton > button { width: 100%; border: none; background: none; padding: 0; }
+        
+        /* 로고 클릭용 투명 버튼 스타일 */
+        .logo-container { position: relative; cursor: pointer; margin-bottom: 20px; }
+        .stButton>button {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100px;
+            background: transparent !important; border: none !important; color: transparent !important;
+            z-index: 10;
+        }
+        .stButton>button:hover { background: transparent !important; border: none !important; }
         </style>
         """, unsafe_allow_html=True)
 
@@ -57,31 +64,36 @@ def to_n(x):
 df = load_data()
 
 if df is not None:
-    # 세션 상태 유지 (홈/상세)
-    if 'menu_selection' not in st.session_state:
-        st.session_state.menu_selection = "🏠 HOME"
+    # 세션 상태로 페이지 관리
+    if 'view' not in st.session_state:
+        st.session_state.view = 'home'
 
     cols2026 = [c for c in df.columns if "2026-" in c]
     comps = list(dict.fromkeys(df['화주사'].tolist()))
     
-    # --- 사이드바 구성 ---
-    # 1. 한익스 로고 (클릭 시 홈으로 이동)
-    if os.path.exists(H_LOG):
-        if st.sidebar.button(""): # 로고를 버튼처럼 활용
-            st.session_state.menu_selection = "🏠 HOME"
-        st.sidebar.image(H_LOG, use_container_width=True)
+    # --- 사이드바 ---
+    # 1. 로고 + 투명 버튼 (클릭 시 홈으로 강제 이동)
+    with st.sidebar:
+        st.markdown('<div class="logo-container">', unsafe_allow_html=True)
+        if st.button("HOME_BTN", key="home_btn"):
+            st.session_state.view = 'home'
+            st.rerun() # 즉시 화면 갱신
+        if os.path.exists(H_LOG):
+            st.image(H_LOG, use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
-    # 2. 화주사 리스트 바로 노출 (라디오 버튼)
-    # "전체 요약" 문구를 지우기 위해 "🏠 HOME"으로 대체하여 최상단에 배치
-    menu_options = ["🏠 HOME"] + comps
-    selection = st.sidebar.radio("📍 화주사 목록", menu_options, index=menu_options.index(st.session_state.menu_selection))
-    st.session_state.menu_selection = selection
+        # 2. 화주사 목록 (라디오 버튼에서 HOME 제거)
+        selected = st.radio("📍 화주사 목록", comps, index=None if st.session_state.view == 'home' else comps.index(st.session_state.get('sel_comp', comps[0])))
+        
+        if selected:
+            st.session_state.view = 'detail'
+            st.session_state.sel_comp = selected
 
-    mon = st.sidebar.selectbox("📅 조회 월 선택", [f"{i:02d}" for i in range(1, 13)])
-    t_cols = [c for c in cols2026 if c.startswith(f"2026-{mon}")]
+        mon = st.selectbox("📅 조회 월 선택", [f"{i:02d}" for i in range(1, 13)])
+        t_cols = [c for c in cols2026 if c.startswith(f"2026-{mon}")]
 
-    # --- 메인 화면 로직 ---
-    if st.session_state.menu_selection == "🏠 HOME":
+    # --- 메인 화면 ---
+    if st.session_state.view == 'home':
         st.title("📊 남이천1센터 물동량 Dash Board")
         st.markdown(f"### 🚀 {mon}월 물동량 종합 현황")
         res = []
@@ -98,15 +110,15 @@ if df is not None:
         st.dataframe(sdf.applymap(lambda x: f"{int(x):,}" if isinstance(x, (int, float)) else x), use_container_width=True, hide_index=True)
 
     else:
-        # 상세 페이지
-        curr_menu = st.session_state.menu_selection
+        # 상세 현황
+        menu = st.session_state.sel_comp
         L_MAP = {"DKSH L&L":"DKSH L&L_LOGO.png","대호 F&B":"대호 F&B_LOGO.png","덴비코리아":"덴비_LOGO.png","막시무스코리아":"막시무스_LOGO.png","매그니프":"매그니프_LOGO.png","멘소래담":"멘소래담_LOGO.png","머거본":"머거본_LOGO.png","바이오포트코리아":"바이오포트코리아_LOGO.png","시세이도":"시세이도_LOGO.png","유니레버":"유니레버_LOGO.png","커머스파크":"커머스파크_LOGO.png","펄세스":"펄세스_LOGO.png","프로덴티":"프로덴티_LOGO.png","한국프리오":"한국프리오_LOGO.png","헨켈홈케어":"헨켈홈케어_LOGO.png"}
-        if curr_menu in L_MAP:
-            p = os.path.join(L_DIR, L_MAP[curr_menu])
+        if menu in L_MAP:
+            p = os.path.join(L_DIR, L_MAP[menu])
             if os.path.exists(p): st.image(p, width=150)
         
-        st.markdown(f"## {curr_menu} 상세 현황")
-        cdf = df[df['화주사'] == curr_menu]
+        st.markdown(f"## {menu} 상세 현황")
+        cdf = df[df['화주사'] == menu]
         if not cdf.empty:
             vm = cdf['구분'].str.replace(" ","").str.contains('물동량|입고|출고|반품', na=False, case=False)
             dv = cdf[vm][t_cols].applymap(to_n).sum().reset_index()
