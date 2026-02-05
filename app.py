@@ -5,7 +5,7 @@ import urllib.parse, os, base64
 # 1. 페이지 설정
 st.set_page_config(page_title="남이천1센터 물동량 Dash Board", layout="wide")
 
-# 2. 경로 및 이미지 설정
+# 2. 이미지 및 로고 경로
 L_DIR = "LOGO"
 C_IMG = os.path.join(L_DIR, "센터조감도.png")
 H_LOG = os.path.join(L_DIR, "한익스_LOGO.png")
@@ -15,7 +15,7 @@ def get_b64(p):
         return base64.b64encode(open(p, "rb").read()).decode()
     return None
 
-# 3. 디자인 테마 (투명 버튼을 로고 전체 크기로 확장)
+# 3. 디자인 테마 (로고 클릭 버튼 완전 최적화)
 def apply_theme():
     b64 = get_b64(C_IMG)
     bg_css = f"""
@@ -31,15 +31,17 @@ def apply_theme():
         [data-testid='stMetric'] { background-color: white !important; padding: 20px !important; border-radius: 15px !important; box-shadow: 0 4px 15px rgba(0,0,0,0.1) !important; border-left: 8px solid #E30613 !important; }
         h1, h2, h3 { color: #002D56 !important; font-weight: 900 !important; }
         
-        /* 로고 클릭용 투명 버튼 - 로고 전체 영역(100%) 커버 */
-        .logo-container { position: relative; width: 100%; text-align: center; }
+        /* 로고 영역 전체 클릭을 위한 절대 좌표 설정 */
+        .logo-container { position: relative; width: 100%; height: 80px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
         .stButton>button {
-            position: absolute; top: 0; left: 0; width: 100% !important; height: 80px !important;
+            position: absolute !important; top: 0 !important; left: 0 !important;
+            width: 100% !important; height: 100% !important;
+            min-height: 80px !important;
             background: transparent !important; border: none !important; color: transparent !important;
-            z-index: 99; cursor: pointer;
+            z-index: 999 !important; cursor: pointer !important;
         }
         .stButton>button:hover, .stButton>button:active { 
-            background: transparent !important; border: none !important; color: transparent !important; 
+            background: transparent !important; border: none !important; 
         }
         </style>
         """, unsafe_allow_html=True)
@@ -66,7 +68,6 @@ def to_n(x):
 df = load_data()
 
 if df is not None:
-    # 세션 상태로 페이지 관리
     if 'view' not in st.session_state:
         st.session_state.view = 'home'
 
@@ -75,17 +76,17 @@ if df is not None:
     
     # --- 사이드바 ---
     with st.sidebar:
-        # 로고 영역 전체를 버튼으로 감싸기
+        # 1. 로고를 감싸는 컨테이너와 투명 버튼
         st.markdown('<div class="logo-container">', unsafe_allow_html=True)
-        if st.button("HOME", key="home_btn"):
+        if st.button("HOME", key="home_btn_final"):
             st.session_state.view = 'home'
             st.rerun()
         if os.path.exists(H_LOG):
             st.image(H_LOG, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # 화주사 목록 (HOME 없이 화주사만 노출)
-        selected = st.radio("📍 화주사 목록", comps, index=None if st.session_state.view == 'home' else comps.index(st.session_state.get('sel_comp', comps[0])))
+        # 2. 화주사 목록
+        selected = st.radio("📍 화주사 목록", comps, index=None if st.session_state.view == 'home' else (comps.index(st.session_state.sel_comp) if 'sel_comp' in st.session_state else 0))
         
         if selected:
             st.session_state.view = 'detail'
