@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import urllib.parse, os, base64
-import plotly.graph_objects as go  # 선+막대 복합 차트를 위해 추가
+import plotly.graph_objects as go
 
 # 1. 페이지 설정
 st.set_page_config(page_title="남이천1센터 물동량 Dash Board", layout="wide")
@@ -16,7 +16,7 @@ def get_b64(p):
         return base64.b64encode(open(p, "rb").read()).decode()
     return None
 
-# 3. 디자인 테마
+# 3. 디자인 테마 (로고 클릭 버튼 & 배경 유지)
 def apply_theme():
     b64 = get_b64(C_IMG)
     bg_css = f"""
@@ -52,13 +52,17 @@ def load_data():
     try:
         df = pd.read_csv(URL, header=1)
         df.columns = df.columns.str.strip()
-        return df.dropna(subset=['화주사']) if '화주사' in df.columns else df
+        # 데이터가 있는 행만 추출
+        df = df.dropna(subset=['화주사'])
+        return df
     except: return None
 
 def to_n(x):
     try:
         v = str(x).replace(',', '').strip()
-        return float(v) if v not in ["", "-", "None", "nan", "NaN"] else 0
+        # 숫자가 아닌 문자열이나 빈값 처리
+        if v in ["", "-", "None", "nan", "NaN", "0"]: return 0
+        return float(v)
     except: return 0
 
 df = load_data()
@@ -93,7 +97,8 @@ if df is not None:
         res = []
         for c in comps:
             cdf = df[df['화주사'] == c]
-            m = cdf['구분'].str.replace(" ","").str.contains('물동량|입고|출고|반품', na=False, case=False)
+            # [수정] 필터링 조건 강화: '구분' 값이 비어있지 않은 모든 물동량 행 합산
+            m = cdf['구분'].notna()
             v_sum = cdf[m][t_cols].applymap(to_n).sum().sum()
             res.append({"화주사": c, "월 물동량 합계": v_sum})
         
@@ -104,7 +109,7 @@ if df is not None:
         st.dataframe(sdf.applymap(lambda x: f"{int(x):,}" if isinstance(x, (int, float)) else x), use_container_width=True, hide_index=True)
 
     else:
-        # --- 상세 페이지: 막대 + 선 복합 차트 ---
+        # --- 상세 페이지: 모든 구분 항목 출력 ---
         menu = st.session_state.sel_comp
         L_MAP = {"DKSH L&L":"DKSH L&L_LOGO.png","대호 F&B":"대호 F&B_LOGO.png","덴비코리아":"덴비_LOGO.png","막시무스코리아":"막시무스_LOGO.png","매그니프":"매그니프_LOGO.png","멘소래담":"멘소래담_LOGO.png","머거본":"머거본_LOGO.png","바이오포트코리아":"바이오포트코리아_LOGO.png","시세이도":"시세이도_LOGO.png","유니레버":"유니레버_LOGO.png","커머스파크":"커머스파크_LOGO.png","펄세스":"펄세스_LOGO.png","프로덴티":"프로덴티_LOGO.png","한국프리오":"한국프리오_LOGO.png","헨켈홈케어":"헨켈홈케어_LOGO.png"}
         if menu in L_MAP:
@@ -114,41 +119,40 @@ if df is not None:
         st.markdown(f"## {menu} 상세 현황")
         cdf = df[df['화주사'] == menu]
         if not cdf.empty:
-            target_rows = cdf['구분'].str.replace(" ","").str.contains('물동량|입고|출고|반품', na=False, case=False)
-            df_detail = cdf[target_rows][['구분'] + t_cols].copy()
-            df_chart = df_detail.set_index('구분')[t_cols].transpose().applymap(to_n)
-            df_chart.index = df_chart.index.map(lambda x: x.split("-")[-1]) # 일자 추출
+            # [수정] 특정 단어 필터링 대신 '구분' 값이 있는 모든 행을 가져옴 (누락 방지)
+            df_detail = cdf[cdf['구분'].notna()][['구분'] + t_cols].copy()
             
-            # Plotly 복합 차트 생성
+            # 그래프용 데이터 구성
+            df_chart = df_detail.set_index('구분')[t_cols].transpose().applymap(to_n)
+            df_chart.index = df_chart.index.map(lambda x: x.split("-")[-1])
+            
             fig = go.Figure()
-
-            # 1. 항목별 막대 추가 (Stacked Bar)
             for column in df_chart.columns:
                 fig.add_trace(go.Bar(name=column, x=df_chart.index, y=df_chart[column]))
 
-            # 2. 전체 합계 선 추가 (Trend Line)
             total_sum = df_chart.sum(axis=1)
             fig.add_trace(go.Scatter(
                 name='일일 합계 추세', 
                 x=df_chart.index, 
                 y=total_sum, 
                 mode='lines+markers',
-                line=dict(color='#E30613', width=3) # 한익스 레드 색상
+                line=dict(color='#E30613', width=3)
             ))
 
             fig.update_layout(
-                barmode='stack', # 막대를 쌓아서 표현
+                barmode='stack',
                 hovermode="x unified",
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                 margin=dict(l=20, r=20, t=60, b=20),
                 paper_bgcolor='rgba(0,0,0,0)',
                 plot_bgcolor='rgba(0,0,0,0)'
             )
-
-            st.plotly_chart(fig, use_container_width=True) # 차트 출력
+            st.plotly_chart(fig, use_container_width=True)
             
+            # 표에서도 0이나 빈값을 하이픈(-)으로 처리하여 가독성 유지
             dt = df_detail.copy()
-            for c in t_cols: dt[c] = dt[c].apply(lambda x: f"{int(to_n(x)):,}" if to_n(x) != 0 else "-")
+            for c in t_cols:
+                dt[c] = dt[c].apply(lambda x: f"{int(to_n(x)):,}" if to_n(x) > 0 else "-")
             st.dataframe(dt.rename(columns=lambda x: x.split("-")[-1] if "2026-" in x else x), use_container_width=True, hide_index=True)
 
 st.sidebar.caption("© 2026 HanExpress Nam-Icheon Center")
