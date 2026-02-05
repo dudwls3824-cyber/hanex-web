@@ -26,7 +26,7 @@ def get_b64(p):
             return base64.b64encode(f.read()).decode()
     return None
 
-# 3. 디자인 테마 (핸들 남색 고정 + 슬라이더 CSS)
+# 3. 디자인 테마 (핸들 남색 고정 + 슬라이더 속도 조절 CSS)
 def apply_theme():
     b64_bg = get_b64(C_IMG)
     bg_css = f"""
@@ -44,9 +44,10 @@ def apply_theme():
     }}
     [data-testid="stSidebarCollapseButton"]:hover {{ background-color: #E30613 !important; }}
     
+    /* 🔥 로고 슬라이더 왕복 애니메이션 (속도 60초로 늦춤) */
     @keyframes scroll {{ 0% {{ transform: translateX(0); }} 100% {{ transform: translateX(calc(-150px * 8)); }} }}
     .slider {{ background: white; height: 100px; margin: auto; overflow: hidden; position: relative; width: 100%; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); margin-bottom: 25px; display: flex; align-items: center; }}
-    .slide-track {{ animation: scroll 30s ease-in-out infinite alternate; display: flex; width: calc(150px * 15); }}
+    .slide-track {{ animation: scroll 60s ease-in-out infinite alternate; display: flex; width: calc(150px * 15); }}
     .slide {{ height: 80px; width: 150px; display: flex; align-items: center; justify-content: center; padding: 10px; }}
     .slide img {{ max-height: 100%; max-width: 100%; object-fit: contain; }}
 
@@ -92,7 +93,7 @@ if df is not None:
     if 'view' not in st.session_state: st.session_state.view = 'home'
     cols2026 = [c for c in df.columns if "2026-" in c]
     
-    # 💡 [해결] 시트 순서 그대로 유지 (가나다순 정렬 제거)
+    # 시트 순서 그대로 유지
     comps = list(dict.fromkeys(df['화주사'].dropna().tolist()))
     
     with st.sidebar:
@@ -133,8 +134,6 @@ if df is not None:
     else:
         # --- 상세 페이지 ---
         menu = st.session_state.sel_comp
-        
-        # 💡 [해결] 화주사 로고 이미지 다시 표시
         if menu in L_MAP:
             p = os.path.join(L_DIR, L_MAP[menu])
             if os.path.exists(p): st.image(p, width=180)
@@ -145,7 +144,6 @@ if df is not None:
             df_detail = cdf[cdf['구분'].notna()][['구분'] + t_cols].copy()
             for c in t_cols: df_detail[c] = df_detail[c].apply(to_n)
             
-            # 중복 데이터 그룹화 처리
             df_grouped = df_detail.groupby('구분').sum().reset_index()
             
             df_chart = df_grouped.set_index('구분')[t_cols].transpose()
