@@ -16,7 +16,7 @@ def get_b64(p):
         return base64.b64encode(open(p, "rb").read()).decode()
     return None
 
-# 3. 디자인 테마 (핸들 색상 및 표 크기 수정 포함)
+# 3. 디자인 테마 (핸들 버튼 색상 강제 지정)
 def apply_theme():
     b64 = get_b64(C_IMG)
     bg_css = f"""
@@ -29,20 +29,29 @@ def apply_theme():
     """ if b64 else "<style>"
     
     st.markdown(bg_css + """
-        /* 사이드바 디자인 */
+        /* 사이드바 기본 디자인 */
         [data-testid='stSidebar'] { background-color: #FFFFFF !important; border-top: 25px solid #E30613 !important; border-bottom: 35px solid #002D56 !important; }
         
-        /* 사이드바 열기/닫기 핸들 남색 고정 */
-        [data-testid="stSidebarCollapseButton"] { color: #002D56 !important; background-color: rgba(0, 45, 86, 0.1) !important; border-radius: 50% !important; }
-        
+        /* 🔥 사이드바 열기/닫기 핸들(버튼) 남색 고정 */
+        [data-testid="stSidebarCollapseButton"] {
+            background-color: #002D56 !important; /* 남색 배경 */
+            color: white !important;               /* 흰색 아이콘 */
+            border-radius: 5px !important;
+            top: 10px !important;
+            right: -20px !important;
+            opacity: 1 !important;                 /* 항상 선명하게 */
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+        [data-testid="stSidebarCollapseButton"]:hover {
+            background-color: #E30613 !important; /* 호버 시 빨간색 포인트 */
+        }
+
         /* 메트릭 박스 */
         [data-testid='stMetric'] { background-color: white !important; padding: 20px !important; border-radius: 15px !important; box-shadow: 0 4px 15px rgba(0,0,0,0.1) !important; border-left: 8px solid #E30613 !important; }
         
         h1, h2, h3 { color: #002D56 !important; font-weight: 900 !important; }
 
-        /* 표(DataFrame) 크기 조절: 너무 길게 늘어지지 않도록 설정 */
-        .stDataFrame div { max-height: 400px !important; }
-
+        /* 로고 투명 버튼 설정 */
         .logo-container { position: relative; width: 100%; height: 80px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
         .stButton>button {
             position: absolute !important; top: 0 !important; left: 0 !important;
@@ -56,7 +65,7 @@ def apply_theme():
 
 apply_theme()
 
-# --- 데이터 로드 ---
+# --- 데이터 로드 로직 ---
 URL = f"https://docs.google.com/spreadsheets/d/14-mE7GtbShJqAHwiuBlZsVFFg8FKuy5tsrcX92ecToY/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote('구글 데이터')}"
 
 @st.cache_data(ttl=10)
@@ -64,15 +73,13 @@ def load_data():
     try:
         df = pd.read_csv(URL, header=1)
         df.columns = df.columns.str.strip()
-        df = df.dropna(subset=['화주사'])
-        return df
+        return df.dropna(subset=['화주사'])
     except: return None
 
 def to_n(x):
     try:
         v = str(x).replace(',', '').strip()
-        if v in ["", "-", "None", "nan", "NaN", "0"]: return 0
-        return float(v)
+        return float(v) if v not in ["", "-", "None", "nan", "NaN", "0"] else 0
     except: return 0
 
 df = load_data()
@@ -104,7 +111,6 @@ if df is not None:
     if st.session_state.view == 'home':
         st.title("📊 남이천1센터 물동량 Dash Board")
         
-        # 상단 요약 지표
         res = []
         for c in comps:
             cdf = df[df['화주사'] == c]
@@ -115,27 +121,19 @@ if df is not None:
         sdf = pd.DataFrame(res)
         st.metric("📦 센터 전체 물동량 계", f"{int(sdf['월 물동량 합계'].sum()):,}")
         
-        # 화면 분할: 그래프와 표를 적절히 배치
-        col1, col2 = st.columns([1.5, 1])
-        
-        with col1:
+        # 그래프와 표 가로 배치 및 표 크기 최적화
+        c1, c2 = st.columns([1.6, 1])
+        with c1:
             st.markdown(f"#### 📈 화주사별 물동량 분석 ({mon}월)")
             st.bar_chart(sdf.set_index('화주사'), color="#002D56")
-            
-        with col2:
-            st.markdown("#### 📋 데이터 현황")
-            # 표 크기 조절을 위해 별도 컨테이너 사용
+        with c2:
+            st.markdown("#### 📋 현황 요약")
             st.dataframe(sdf.applymap(lambda x: f"{int(x):,}" if isinstance(x, (int, float)) else x), 
-                         use_container_width=True, hide_index=True, height=400)
+                         use_container_width=True, hide_index=True, height=380)
 
     else:
-        # --- 상세 페이지 ---
+        # 상세 페이지
         menu = st.session_state.sel_comp
-        L_MAP = {"DKSH L&L":"DKSH L&L_LOGO.png","대호 F&B":"대호 F&B_LOGO.png","덴비코리아":"덴비_LOGO.png","막시무스코리아":"막시무스_LOGO.png","매그니프":"매그니프_LOGO.png","멘소래담":"멘소래담_LOGO.png","머거본":"머거본_LOGO.png","바이오포트코리아":"바이오포트코리아_LOGO.png","시세이도":"시세이도_LOGO.png","유니레버":"유니레버_LOGO.png","커머스파크":"커머스파크_LOGO.png","펄세스":"펄세스_LOGO.png","PRODENTI":"프로덴티_LOGO.png","한국프리오":"한국프리오_LOGO.png","헨켈홈케어":"헨켈홈케어_LOGO.png"}
-        if menu in L_MAP:
-            p = os.path.join(L_DIR, L_MAP[menu])
-            if os.path.exists(p): st.image(p, width=150)
-        
         st.markdown(f"## {menu} 상세 현황")
         cdf = df[df['화주사'] == menu]
         if not cdf.empty:
@@ -146,11 +144,8 @@ if df is not None:
             fig = go.Figure()
             for column in df_chart.columns:
                 fig.add_trace(go.Bar(name=column, x=df_chart.index, y=df_chart[column]))
-
-            total_sum = df_chart.sum(axis=1)
-            fig.add_trace(go.Scatter(name='일일 합계 추세', x=df_chart.index, y=total_sum, mode='lines+markers', line=dict(color='#E30613', width=3)))
-
-            fig.update_layout(barmode='stack', hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), margin=dict(l=20, r=20, t=60, b=20), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+            fig.add_trace(go.Scatter(name='일일 합계', x=df_chart.index, y=df_chart.sum(axis=1), mode='lines+markers', line=dict(color='#E30613', width=3)))
+            fig.update_layout(barmode='stack', hovermode="x unified", legend=dict(orientation="h", y=1.1), margin=dict(l=10, r=10, t=50, b=10), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
             st.plotly_chart(fig, use_container_width=True)
             
             st.dataframe(df_detail.applymap(lambda x: f"{int(to_n(x)):,}" if to_n(x) > 0 else "-")
