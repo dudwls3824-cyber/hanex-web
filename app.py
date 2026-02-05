@@ -113,7 +113,7 @@ if df is not None:
                     return c_df[mask][current_month_cols].applymap(to_numeric_safe).sum().sum()
                 return 0
             vol, sales, costs = get_val(["물동량", "입고", "출고", "반품"]), get_val(["매출"]), get_val(["비용"])
-            summary_data.append({"화주사": com, "물동량": vol, "매출": sales, "비용": costs, "이익": sales - costs})
+            summary_data.append({"화주사": com, "물동량": vol, "매출": sales, "비용": costs, "매출이익": sales - costs})
         
         sum_df = pd.DataFrame(summary_data)
         m1, m2, m3 = st.columns(3)
@@ -166,3 +166,4 @@ if df is not None:
 
 
 st.sidebar.caption(f"© 2026 HanExpress Nam-Icheon Center")
+
