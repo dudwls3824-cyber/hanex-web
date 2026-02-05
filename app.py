@@ -12,7 +12,7 @@ except ImportError:
     HAS_PLOTLY = False
 
 # 1. 페이지 설정
-st.set_page_config(page_title="남이천1센터 실시간 물동량 관리", layout="wide")
+st.set_page_config(page_title="남이천1센터 물동량 DASH BOARD", layout="wide")
 
 # 2. 이미지 경로 (깃허브 배포를 위해 'LOGO' 폴더 상대경로로 수정)
 LOGO_DIR = "LOGO"
@@ -163,5 +163,6 @@ if df is not None:
             for col in current_month_cols:
                 detail_t[col] = detail_t[col].apply(format_accounting)
             st.dataframe(detail_t.rename(columns=display_date_map), use_container_width=True, hide_index=True)
+
 
 st.sidebar.caption(f"© 2026 HanExpress Nam-Icheon Center")
