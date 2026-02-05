@@ -11,6 +11,7 @@ L_DIR = "LOGO"
 C_IMG = os.path.join(L_DIR, "센터조감도.png")
 H_LOG = os.path.join(L_DIR, "한익스_LOGO.png")
 
+# 로고 매핑 (상세페이지 로고 출력용)
 L_MAP = {
     "DKSH L&L":"DKSH L&L_LOGO.png","대호 F&B":"대호 F&B_LOGO.png","덴비코리아":"덴비_LOGO.png",
     "막시무스코리아":"막시무스_LOGO.png","매그니프":"매그니프_LOGO.png","멘소래담":"멘소래담_LOGO.png",
@@ -25,7 +26,7 @@ def get_b64(p):
             return base64.b64encode(f.read()).decode()
     return None
 
-# 3. 디자인 테마 (SyntaxError 해결 버전)
+# 3. 디자인 테마 (핸들 남색 고정 + 슬라이더 CSS)
 def apply_theme():
     b64_bg = get_b64(C_IMG)
     bg_css = f"""
@@ -37,14 +38,12 @@ def apply_theme():
     }}
     [data-testid='stSidebar'] {{ background-color: #FFFFFF !important; border-top: 25px solid #E30613 !important; border-bottom: 35px solid #002D56 !important; }}
     
-    /* 사이드바 핸들 남색 고정 */
     [data-testid="stSidebarCollapseButton"] {{
         background-color: #002D56 !important; color: white !important; border-radius: 5px !important;
         top: 10px !important; right: -20px !important; opacity: 1 !important; box-shadow: 0 2px 5px rgba(0,0,0,0.2);
     }}
     [data-testid="stSidebarCollapseButton"]:hover {{ background-color: #E30613 !important; }}
     
-    /* 로고 슬라이더 왕복 애니메이션 */
     @keyframes scroll {{ 0% {{ transform: translateX(0); }} 100% {{ transform: translateX(calc(-150px * 8)); }} }}
     .slider {{ background: white; height: 100px; margin: auto; overflow: hidden; position: relative; width: 100%; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); margin-bottom: 25px; display: flex; align-items: center; }}
     .slide-track {{ animation: scroll 30s ease-in-out infinite alternate; display: flex; width: calc(150px * 15); }}
@@ -70,7 +69,7 @@ def render_logo_slider():
 
 apply_theme()
 
-# --- 데이터 처리 로직 ---
+# --- 데이터 로드 ---
 URL = f"https://docs.google.com/spreadsheets/d/14-mE7GtbShJqAHwiuBlZsVFFg8FKuy5tsrcX92ecToY/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote('구글 데이터')}"
 
 @st.cache_data(ttl=10)
@@ -92,7 +91,9 @@ df = load_data()
 if df is not None:
     if 'view' not in st.session_state: st.session_state.view = 'home'
     cols2026 = [c for c in df.columns if "2026-" in c]
-    comps = sorted(list(set(df['화주사'].dropna().tolist())))
+    
+    # 💡 [해결] 시트 순서 그대로 유지 (가나다순 정렬 제거)
+    comps = list(dict.fromkeys(df['화주사'].dropna().tolist()))
     
     with st.sidebar:
         st.markdown('<div class="logo-container">', unsafe_allow_html=True)
@@ -110,7 +111,6 @@ if df is not None:
         mon = st.selectbox("📅 조회 월 선택", [f"{i:02d}" for i in range(1, 13)])
         t_cols = [c for c in cols2026 if c.startswith(f"2026-{mon}")]
 
-    # --- HOME 화면 ---
     if st.session_state.view == 'home':
         st.title("📊 남이천1센터 물동량 Dash Board")
         render_logo_slider()
@@ -130,16 +130,22 @@ if df is not None:
             st.markdown("#### 📋 현황 요약")
             st.dataframe(sdf.applymap(lambda x: f"{int(x):,}" if isinstance(x, (int, float)) else x), use_container_width=True, hide_index=True, height=380)
 
-    # --- 상세 페이지 (중복 데이터 처리 완료) ---
     else:
+        # --- 상세 페이지 ---
         menu = st.session_state.sel_comp
+        
+        # 💡 [해결] 화주사 로고 이미지 다시 표시
+        if menu in L_MAP:
+            p = os.path.join(L_DIR, L_MAP[menu])
+            if os.path.exists(p): st.image(p, width=180)
+            
         st.markdown(f"## {menu} 상세 현황")
         cdf = df[df['화주사'] == menu]
         if not cdf.empty:
             df_detail = cdf[cdf['구분'].notna()][['구분'] + t_cols].copy()
             for c in t_cols: df_detail[c] = df_detail[c].apply(to_n)
             
-            # 🔥 중복 데이터 에러 방지용 그룹화
+            # 중복 데이터 그룹화 처리
             df_grouped = df_detail.groupby('구분').sum().reset_index()
             
             df_chart = df_grouped.set_index('구분')[t_cols].transpose()
