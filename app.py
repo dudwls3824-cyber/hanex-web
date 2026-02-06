@@ -62,15 +62,25 @@ def render_logo_slider():
 
 apply_theme()
 
-URL = f"https://docs.google.com/spreadsheets/d/14-mE7GtbShJqAHwiuBlZsVFFg8FKuy5tsrcX92ecToY/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote('구글 데이터')}"
+# --- 데이터 로드 (물동량 & 임시직) ---
+BASE_URL = "https://docs.google.com/spreadsheets/d/14-mE7GtbShJqAHwiuBlZsVFFg8FKuy5tsrcX92ecToY/gviz/tq?tqx=out:csv"
+URL_DATA = f"{BASE_URL}&sheet={urllib.parse.quote('구글 데이터')}"
+URL_TEMP = f"{BASE_URL}&sheet={urllib.parse.quote('임시직')}"
 
 @st.cache_data(ttl=10)
-def load_data():
+def load_all_data():
     try:
-        df = pd.read_csv(URL, header=1)
+        df = pd.read_csv(URL_DATA, header=1)
         df.columns = df.columns.str.strip()
-        return df.dropna(subset=['화주사'])
-    except: return None
+        
+        try:
+            df_temp = pd.read_csv(URL_TEMP, header=1)
+            df_temp.columns = df_temp.columns.str.strip()
+        except:
+            df_temp = pd.DataFrame()
+            
+        return df.dropna(subset=['화주사']), df_temp
+    except: return None, None
 
 def to_n(x):
     try:
@@ -78,7 +88,7 @@ def to_n(x):
         return float(v) if v not in ["", "-", "None", "nan", "NaN", "0"] else 0
     except: return 0
 
-df = load_data()
+df, df_temp = load_all_data()
 
 if df is not None:
     if 'view' not in st.session_state: st.session_state.view = 'home'
@@ -118,39 +128,27 @@ if df is not None:
             st.dataframe(sdf.applymap(lambda x: f"{int(x):,}" if isinstance(x, (int, float)) else x), use_container_width=True, hide_index=True, height=380)
 
     else:
+        # --- 상세 페이지 ---
         menu = st.session_state.sel_comp
         if menu in L_MAP:
             p = os.path.join(L_DIR, L_MAP[menu])
             if os.path.exists(p): st.image(p, width=180)
         st.markdown(f"## {menu} 상세 현황")
+        
+        # --- 1. 물동량 항목 ---
+        st.markdown("#### 1. 물동량 현황")
         cdf = df[df['화주사'] == menu]
         if not cdf.empty:
-            # 🔥 [해결] 구분값 순서 유지를 위해 원본 구분값 리스트 미리 확보
             orig_order = list(dict.fromkeys(cdf['구분'].dropna().tolist()))
-            
             df_detail = cdf[cdf['구분'].notna()][['구분'] + t_cols].copy()
             for c in t_cols: df_detail[c] = df_detail[c].apply(to_n)
             
-            # 그룹화 후 원본 순서대로 재정렬
             df_grouped = df_detail.groupby('구분', sort=False).sum().reset_index()
             df_grouped['구분'] = pd.Categorical(df_grouped['구분'], categories=orig_order, ordered=True)
             df_grouped = df_grouped.sort_values('구분')
-            
-            # 월 합계 계산 및 위치 조정
             df_grouped['월 합계'] = df_grouped[t_cols].sum(axis=1)
+            
             dt_display = df_grouped[['구분', '월 합계'] + t_cols].copy()
-            
-            # 그래프 출력
-            df_chart = df_grouped.set_index('구분')[t_cols].transpose()
-            df_chart.index = df_chart.index.map(lambda x: x.split("-")[-1])
-            fig = go.Figure()
-            for column in df_chart.columns:
-                fig.add_trace(go.Bar(name=str(column), x=df_chart.index, y=df_chart[column]))
-            fig.add_trace(go.Scatter(name='일일 합계', x=df_chart.index, y=df_chart.sum(axis=1), mode='lines+markers', line=dict(color='#E30613', width=3)))
-            fig.update_layout(barmode='stack', hovermode="x unified", legend=dict(orientation="h", y=1.1), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', margin=dict(l=10, r=10, t=50, b=10))
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # 🔥 [해결] 숫자 0을 '-'로 변환하여 표 출력 (음영 유지)
             new_cols = {c: c.split("-")[-1] for c in t_cols}
             dt_final = dt_display.rename(columns=new_cols)
             
@@ -159,10 +157,31 @@ if df is not None:
                     return f"{int(x):,}" if x > 0 else "-"
                 return x
 
-            # 스타일 적용 (월 합계 열 음영)
-            def style_row(row):
+            def style_sum_col(row):
                 return ['' if col != '월 합계' else 'background-color: #F0F2F6; font-weight: bold;' for col in dt_final.columns]
 
-            st.dataframe(dt_final.style.apply(style_row, axis=1).format(format_val), use_container_width=True, hide_index=True)
+            st.dataframe(dt_final.style.apply(style_sum_col, axis=1).format(format_val), use_container_width=True, hide_index=True)
+
+        # --- 2. 임시직 항목 추가 ---
+        st.markdown("---")
+        st.markdown("#### 2. 임시직 투입 현황")
+        if df_temp is not None and not df_temp.empty:
+            t_df = df_temp[df_temp['화주사'] == menu]
+            if not t_df.empty:
+                # 임시직 시트도 물동량과 동일한 구조(구분, 날짜들)라고 가정
+                t_detail = t_df[t_df['구분'].notna()][['구분'] + t_cols].copy()
+                for c in t_cols: t_detail[c] = t_detail[c].apply(to_n)
+                
+                t_grouped = t_detail.groupby('구분', sort=False).sum().reset_index()
+                t_grouped['월 합계'] = t_grouped[t_cols].sum(axis=1)
+                
+                t_display = t_grouped[['구분', '월 합계'] + t_cols].copy()
+                t_final = t_display.rename(columns=new_cols)
+                
+                st.dataframe(t_final.style.apply(style_sum_col, axis=1).format(format_val), use_container_width=True, hide_index=True)
+            else:
+                st.info("해당 월의 임시직 투입 데이터가 없습니다.")
+        else:
+            st.warning("임시직 시트 데이터를 불러올 수 없습니다.")
 
 st.sidebar.caption("© 2026 HanExpress Nam-Icheon Center")
