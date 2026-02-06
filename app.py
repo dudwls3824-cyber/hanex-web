@@ -6,340 +6,258 @@ import base64
 import re
 
 # =================================================================
-# 1. 페이지 초기 설정 및 상수 정의 (글자 수 및 로직 보존)
+# 1. 페이지 초기 설정 (전체 레이아웃 및 환경 설정)
 # =================================================================
 st.set_page_config(
     page_title="남이천1센터 물동량 Dash Board",
-    page_icon="📊",
+    page_icon="📦",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# 폴더 및 파일 경로 설정
-LOGO_DIR = "LOGO"
-CENTER_IMAGE = os.path.join(LOGO_DIR, "센터조감도.png")
-HANEX_LOGO = os.path.join(LOGO_DIR, "한익스_LOGO.png")
+# 폴더 경로 및 파일 정의
+LOGO_PATH = "LOGO"
+BG_IMG = os.path.join(LOGO_PATH, "센터조감도.png")
+MAIN_LOGO = os.path.join(LOGO_PATH, "한익스_LOGO.png")
 
-# 화주사별 로고 매핑 리스트 (단 하나도 빠짐없이 유지)
+# 화주사 로고 매핑 (절대 누락 금지)
 LOGO_MAP = {
-    "DKSH L&L": "DKSH L&L_LOGO.png",
-    "대호 F&B": "대호 F&B_LOGO.png",
-    "덴비코리아": "덴비_LOGO.png",
-    "막시무스코리아": "막시무스코리아.png",
-    "매그니프": "매그니프_LOGO.png",
-    "멘소래담": "멘소래담_LOGO.png",
-    "머거본": "머거본_LOGO.png",
-    "바이오포트코리아": "바이오포트코리아_LOGO.png",
-    "시세이도": "시세이도_LOGO.png",
-    "유니레버": "유니레버_LOGO.png",
-    "커머스파크": "커머스파크_LOGO.png",
-    "펄세스": "펄세스_LOGO.png",
-    "PRODENTI": "프로덴티_LOGO.png",
-    "한국프리오": "한국프리오_LOGO.png",
-    "헨켈홈케어": "헨켈홈케어_LOGO.png",
+    "DKSH L&L": "DKSH L&L_LOGO.png", "대호 F&B": "대호 F&B_LOGO.png", "덴비코리아": "덴비_LOGO.png",
+    "막시무스코리아": "막시무스코리아.png", "매그니프": "매그니프_LOGO.png", "멘소래담": "멘소래담_LOGO.png",
+    "머거본": "머거본_LOGO.png", "바이오포트코리아": "바이오포트코리아_LOGO.png", "시세이도": "시세이도_LOGO.png",
+    "유니레버": "유니레버_LOGO.png", "커머스파크": "커머스파크_LOGO.png", "펄세스": "펄세스_LOGO.png",
+    "PRODENTI": "프로덴티_LOGO.png", "한국프리오": "한국프리오_LOGO.png", "헨켈홈케어": "헨켈홈케어_LOGO.png",
     "네이처리퍼블릭": "네이처리퍼블릭_LOGO.png"
 }
 
 # =================================================================
-# 2. 핵심 유틸리티 함수 (데이터 처리 및 이미지 변환)
+# 2. 고성능 유틸리티 함수 (이미지 및 데이터 정밀 처리)
 # =================================================================
-def get_base64_encoded_image(image_path):
-    """이미지 파일을 읽어 Base64로 인코딩 (배경 및 CSS 적용용)"""
-    if os.path.exists(image_path):
-        with open(image_path, "rb") as img_file:
-            return base64.b64encode(img_file.read()).decode()
+def convert_image_to_base64(path):
+    """이미지를 Base64로 변환하여 CSS에서 사용 가능하게 함"""
+    if os.path.exists(path):
+        with open(path, "rb") as image_file:
+            return base64.b64encode(image_file.read()).decode()
     return None
 
-def clean_and_convert_to_float(value):
-    """지저분한 문자열에서 숫자만 추출 (중간 누락 방지 핵심 함수)"""
+def extract_pure_number(value):
+    """모든 방해 요소를 제거하고 순수 숫자만 추출 (누락 방지)"""
     if pd.isna(value) or str(value).strip() in ["", "-", "None", "nan"]:
         return 0.0
     try:
-        # 콤마 제거 및 공백 제거
-        cleaned_str = str(value).replace(',', '').strip()
-        # 정규표현식으로 숫자와 소수점만 추출
-        extracted_numbers = re.findall(r'\d+\.?\d*', cleaned_str)
-        if extracted_numbers:
-            return float(extracted_numbers[0])
-        return 0.0
-    except (ValueError, TypeError, IndexError):
+        s = str(value).replace(',', '').strip()
+        nums = re.findall(r'\d+\.?\d*', s)
+        return float(nums[0]) if nums else 0.0
+    except:
         return 0.0
 
 @st.cache_data(ttl=1)
-def fetch_google_sheet_data(sheet_name):
-    """구글 시트로부터 데이터를 강제로 긁어오고 헤더를 재구성"""
+def load_sheet_data(sheet_name):
+    """구글 시트에서 데이터를 정밀하게 로드 (헤더 자동 감지 및 문자열 강제화)"""
     try:
-        spreadsheet_id = "14-mE7GtbShJqAHwiuBlZsVFFg8FKuy5tsrcX92ecToY"
-        encoded_sheet_name = urllib.parse.quote(sheet_name)
-        csv_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/gviz/tq?tqx=out:csv&sheet={encoded_sheet_name}"
+        sid = "14-mE7GtbShJqAHwiuBlZsVFFg8FKuy5tsrcX92ecToY"
+        encoded_name = urllib.parse.quote(sheet_name)
+        url = f"https://docs.google.com/spreadsheets/d/{sid}/gviz/tq?tqx=out:csv&sheet={encoded_name}"
         
-        # [중요] 모든 열을 문자열로 읽어서 파이썬이 숫자를 글자로 오해하는 것 차단
-        raw_df = pd.read_csv(csv_url, header=None, dtype=str)
+        # 1차 로드 (데이터 구조 파악)
+        raw = pd.read_csv(url, header=None, dtype=str)
         
-        # '화주사' 키워드가 있는 행을 찾아 실제 데이터 시작점으로 설정
-        header_index = 0
-        for i, row in raw_df.iterrows():
+        # '화주사' 위치 찾기
+        h_idx = 0
+        for i, row in raw.iterrows():
             if '화주사' in row.values:
-                header_index = i
+                h_idx = i
                 break
         
-        # 헤더 아래의 실제 데이터 추출
-        processed_df = raw_df.iloc[header_index+1:].copy()
-        # 컬럼명 설정 (공백 제거 및 결측치 처리)
-        processed_df.columns = [str(c).strip() if pd.notna(c) else f"col_{idx}" for idx, c in enumerate(raw_df.iloc[header_index])]
+        # 2차 가공 (실제 데이터와 헤더 결합)
+        df = raw.iloc[h_idx+1:].copy()
+        df.columns = [str(c).strip() if pd.notna(c) else f"col_{idx}" for idx, c in enumerate(raw.iloc[h_idx])]
         
-        # 필수 열이 없는 데이터 제거
-        processed_df = processed_df.dropna(subset=['화주사', '구분'])
-        # 검색 및 매칭용 이름 열 추가
-        processed_df['match_name'] = processed_df['화주사'].astype(str).str.replace(' ', '').str.upper()
-        
-        return processed_df
+        # 공백 제거 및 필수값 필터링
+        df = df.dropna(subset=['화주사', '구분'])
+        df['match_name'] = df['화주사'].astype(str).str.replace(' ', '').str.upper()
+        return df
     except Exception as e:
-        st.error(f"구글 시트 데이터 로드 중 오류 발생: {e}")
+        st.error(f"데이터 로드 실패: {e}")
         return pd.DataFrame()
 
 # =================================================================
-# 3. CSS 스타일링 및 인터페이스 디자인 (풀 버전 서식)
+# 3. CSS 스타일링 (배경, 투명버튼, 슬라이더, 음영)
 # =================================================================
-background_b64 = get_base64_encoded_image(CENTER_IMAGE)
+bg_b64 = convert_image_to_base64(BG_IMG)
 st.markdown(f"""
 <style>
-    /* 전체 배경화면 설정 */
+    /* 배경 설정 */
     [data-testid='stAppViewContainer'] {{
-        background-image: linear-gradient(rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.85)), url('data:image/png;base64,{background_b64}');
-        background-size: cover;
-        background-position: center;
-        background-attachment: fixed;
+        background-image: linear-gradient(rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0.8)), url('data:image/png;base64,{bg_b64}');
+        background-size: cover; background-position: center; background-attachment: fixed;
     }}
-    
-    /* 사이드바 홈 로고 클릭용 투명 레이어 버튼 */
-    .logo-wrapper {{
-        position: relative;
-        width: 100%;
-        text-align: center;
-        margin-bottom: 25px;
-    }}
-    
+    /* 사이드바 홈 로고 클릭 레이어 */
+    .home-logo-overlay {{ position: relative; width: 100%; text-align: center; margin-bottom: 20px; }}
     .stButton>button {{
-        position: absolute !important;
-        top: 0 !important;
-        left: 0 !important;
-        width: 100% !important;
-        height: 100% !important;
-        background: transparent !important;
-        border: none !important;
-        color: transparent !important;
-        z-index: 999 !important;
-        cursor: pointer !important;
+        position: absolute !important; top: 0 !important; left: 0 !important;
+        width: 100% !important; height: 100% !important;
+        background: transparent !important; border: none !important;
+        color: transparent !important; z-index: 100 !important;
     }}
-    
-    /* 하단 로고 슬라이더 애니메이션 설정 */
-    @keyframes scroll_logos {{
-        0% {{ transform: translateX(0); }}
-        100% {{ transform: translateX(calc(-150px * 8)); }}
-    }}
-    
-    .logo-slider-container {{
-        background: white;
-        height: 110px;
-        margin-bottom: 30px;
-        overflow: hidden;
-        position: relative;
-        border-radius: 12px;
-        display: flex;
-        align-items: center;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-    }}
-    
-    .logo-slider-track {{
-        animation: scroll_logos 28s linear infinite alternate;
-        display: flex;
-        width: calc(150px * 16);
-    }}
-    
-    .logo-item {{
-        width: 150px;
-        padding: 15px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    }}
-    
-    .logo-item img {{
-        max-height: 80px;
-        max-width: 100%;
-        object-fit: contain;
-    }}
-    
-    /* 상세 페이지용 우측 상단 로고 위치 고정 */
-    .top-right-floating-logo {{
-        position: absolute;
-        top: 0px;
-        right: 30px;
-        z-index: 1000;
-    }}
-    
-    .top-right-floating-logo img {{
-        height: 70px;
-        object-fit: contain;
-    }}
+    /* 로고 슬라이더 애니메이션 */
+    @keyframes move_logos {{ 0% {{ transform: translateX(0); }} 100% {{ transform: translateX(calc(-150px * 8)); }} }}
+    .slider-box {{ background: white; height: 100px; margin-bottom: 30px; overflow: hidden; position: relative; border-radius: 12px; display: flex; align-items: center; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }}
+    .slider-track {{ animation: move_logos 25s linear infinite alternate; display: flex; width: calc(150px * 16); }}
+    .slide-item {{ width: 150px; padding: 10px; display: flex; align-items: center; justify-content: center; }}
+    .slide-item img {{ max-height: 70px; object-fit: contain; }}
+    /* 우상단 고정 로고 */
+    .floating-logo {{ position: absolute; top: -10px; right: 20px; z-index: 1000; }}
+    .floating-logo img {{ height: 60px; object-fit: contain; }}
 </style>
 """, unsafe_allow_html=True)
 
 # =================================================================
-# 4. 데이터 로드 및 전처리 수행
+# 4. 데이터 로드 및 전역 변수 설정
 # =================================================================
-df_vol_main = fetch_google_sheet_data('구글 데이터')
-df_temp_main = fetch_google_sheet_data('임시직')
+df_vol = load_sheet_data('구글 데이터')
+df_tmp = load_sheet_data('임시직')
 
-if not df_vol_main.empty:
-    # 화주사 목록 추출 (원본 시트 순서 고정)
-    company_list = list(dict.fromkeys(df_vol_main['화주사'].tolist()))
+if not df_vol.empty:
+    # 화주사 리스트 (원본 순서 유지)
+    comp_list = list(dict.fromkeys(df_vol['화주사'].tolist()))
     
-    # 세션 상태 초기화
-    if 'view_mode' not in st.session_state:
-        st.session_state.view_mode = 'home'
-    if 'selected_company' not in st.session_state:
-        st.session_state.selected_company = company_list[0]
+    if 'view' not in st.session_state: st.session_state.view = 'home'
+    if 'sel_comp' not in st.session_state: st.session_state.sel_comp = comp_list[0]
 
-    # 사이드바 구성
     with st.sidebar:
-        # 홈 버튼 (한익스 로고 클릭 기능)
-        st.markdown('<div class="logo-wrapper">', unsafe_allow_html=True)
-        if st.button("GO_HOME"):
-            st.session_state.view_mode = 'home'
+        # 투명 홈 버튼 구현
+        st.markdown('<div class="home-logo-overlay">', unsafe_allow_html=True)
+        if st.button("HOME_CLICK"):
+            st.session_state.view = 'home'
             st.rerun()
-        if os.path.exists(HANEX_LOGO):
-            st.image(HANEX_LOGO, use_container_width=True)
+        if os.path.exists(MAIN_LOGO): st.image(MAIN_LOGO, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
         
         st.write("---")
         
-        # 화주사 선택 라디오 버튼 (인덱스 추적)
-        try:
-            current_comp_idx = company_list.index(st.session_state.selected_company)
-        except:
-            current_comp_idx = 0
+        # 화주사 선택 메뉴
+        c_idx = comp_list.index(st.session_state.sel_comp) if st.session_state.sel_comp in comp_list else 0
+        sel = st.radio("📍 화주사 현황 목록", comp_list, index=c_idx if st.session_state.view == 'detail' else None)
+        if sel:
+            st.session_state.view = 'detail'
+            st.session_state.sel_comp = sel
             
-        selected_comp = st.radio("📍 화주사 목록", company_list, index=current_comp_idx if st.session_state.view_mode == 'detail' else None)
+        target_mon = st.selectbox("📅 조회 월 선택", [f"{i:02d}" for i in range(1, 13)])
         
-        if selected_comp:
-            st.session_state.view_mode = 'detail'
-            st.session_state.selected_company = selected_comp
-            
-        selected_month = st.selectbox("📅 조회 월 선택", [f"{i:02d}" for i in range(1, 13)])
-        
-        # [데이터 누락 방지 핵심] 날짜 컬럼 식별 (이름이 아닌 위치로 모든 데이터 열 식별)
-        all_column_names = df_vol_main.columns.tolist()
-        # 제외할 고정 컬럼들
-        fixed_cols = ['화주사', '구분', '합계', '계', 'match_name']
-        # 날짜 데이터가 들어있는 컬럼들만 추출
-        date_data_cols = [c for c in all_column_names if c not in fixed_cols and "Unnamed" not in c and "월합계" not in c]
+        # [중요] 날짜 컬럼 식별 로직 (1월 8일 이후 데이터 누락 방지)
+        all_cols = df_vol.columns.tolist()
+        # '화주사', '구분', '합계', 'match_name' 등을 제외한 모든 열을 날짜 데이터로 간주
+        date_cols = [c for c in all_cols if c not in ['화주사', '구분', '합계', '계', '비고', 'match_name'] and "Unnamed" not in c]
 
     # =================================================================
-    # 5. 메인 화면 - [메인 대시보드 (HOME)]
+    # 5. 메인 화면 - [HOME 대시보드]
     # =================================================================
-    if st.session_state.view_mode == 'home':
+    if st.session_state.view == 'home':
         st.title("📊 남이천1센터 물동량 Dash Board")
         
-        # 하단 로고 슬라이더 구현
-        slider_html_content = ""
-        for name, filename in LOGO_MAP.items():
-            encoded_logo = get_base64_encoded_image(os.path.join(LOGO_DIR, filename))
-            if encoded_logo:
-                slider_html_content += f'<div class="logo-item"><img src="data:image/png;base64,{encoded_logo}"></div>'
+        # 로고 슬라이더 복구
+        slides_html = ""
+        for name, file in LOGO_MAP.items():
+            b64 = convert_image_to_base64(os.path.join(LOGO_PATH, file))
+            if b64: slides_html += f'<div class="slide-item"><img src="data:image/png;base64,{b64}"></div>'
+        st.markdown(f'<div class="slider-box"><div class="slider-track">{slides_html}</div></div>', unsafe_allow_html=True)
         
-        st.markdown(f'<div class="logo-slider-container"><div class="logo-slider-track">{slider_html_content}</div></div>', unsafe_allow_html=True)
-        
-        # 요약 데이터 집계 로직
-        summary_results = []
-        for comp in company_list:
-            match_key = comp.replace(' ', '').upper()
-            comp_vol_data = df_vol_main[df_vol_main['match_name'] == match_key][date_data_cols]
-            total_vol_val = comp_vol_data.applymap(clean_and_convert_to_float).sum().sum()
+        # 전체 데이터 집계
+        total_summary = []
+        for c in comp_list:
+            m_key = c.replace(' ', '').upper()
+            c_v_data = df_vol[df_vol['match_name'] == m_key][date_cols]
+            v_sum = c_v_data.applymap(extract_pure_number).sum().sum()
             
-            total_temp_val = 0
-            if not df_temp_main.empty:
-                temp_data_sub = df_temp_main[df_temp_main['match_name'] == match_key]
-                valid_temp_cols = [tc for tc in date_data_cols if tc in temp_data_sub.columns]
-                total_temp_val = temp_data_sub[valid_temp_cols].applymap(clean_and_convert_to_float).sum().sum() if valid_temp_cols else 0
+            t_sum = 0
+            if not df_tmp.empty:
+                # 임시직 데이터 매칭 로직 복구
+                t_sub = df_tmp[df_tmp['match_name'] == m_key]
+                act_t_cols = [tc for tc in date_cols if tc in t_sub.columns]
+                t_sum = t_sub[act_t_cols].applymap(extract_pure_number).sum().sum() if act_t_cols else 0
             
-            summary_results.append({"화주사": comp, "물동량 합계": total_vol_val, "임시직 합계": total_temp_val})
+            total_summary.append({"화주사": c, "물동량 합계": v_sum, "임시직 합계": t_sum})
         
-        summary_df_final = pd.DataFrame(summary_results)
-        grand_total_volume = summary_df_final['물동량 합계'].sum()
+        sum_df = pd.DataFrame(total_summary)
+        all_v_total = sum_df['물동량 합계'].sum()
         
-        # 센터 전체 물동량 대형 지표 (서식 보존)
+        # 센터 전체 물동량 대형 지표 (서식 및 음영 강조)
         st.markdown(f"""
-            <div style="background-color: #002D56; padding: 35px; border-radius: 18px; text-align: center; margin-bottom: 35px; box-shadow: 0 6px 20px rgba(0,0,0,0.25);">
-                <h2 style="color: #FFFFFF; margin: 0; font-weight: 300;">📦 {selected_month}월 센터 전체 물동량 계</h2>
-                <h1 style="color: #FFD700; margin: 15px 0; font-size: 4.5rem; font-weight: 900; letter-spacing: -2px;">{int(grand_total_volume):,}</h1>
+            <div style="background-color: #002D56; padding: 30px; border-radius: 20px; text-align: center; margin-bottom: 30px; border: 3px solid #FFD700;">
+                <h2 style="color: #FFFFFF; margin: 0;">📦 {target_mon}월 센터 전체 물동량 합계</h2>
+                <h1 style="color: #FFD700; margin: 10px 0; font-size: 4rem;">{int(all_v_total):,}</h1>
             </div>
         """, unsafe_allow_html=True)
         
-        col_chart, col_table = st.columns([1.6, 1])
-        with col_chart:
+        c1, c2 = st.columns([1.5, 1])
+        with c1:
             st.markdown("#### 📈 화주사별 물동량 분석")
-            st.bar_chart(summary_df_final.set_index('화주사')['물동량 합계'], color="#002D56")
-        with col_table:
-            st.markdown("#### 📋 현황 요약 리스트")
-            styled_summary = summary_df_final.copy()
-            for col_name in ["물동량 합계", "임시직 합계"]:
-                styled_summary[col_name] = styled_summary[col_name].apply(lambda x: f"{int(x):,}" if x > 0 else "-")
-            st.dataframe(styled_summary, use_container_width=True, hide_index=True, height=550)
+            st.bar_chart(sum_df.set_index('화주사')['물동량 합계'], color="#002D56")
+        with c2:
+            st.markdown("#### 📋 현황 요약")
+            disp_sum = sum_df.copy()
+            for col in ["물동량 합계", "임시직 합계"]:
+                disp_sum[col] = disp_sum[col].apply(lambda x: f"{int(x):,}" if x > 0 else "-")
+            st.dataframe(disp_sum, use_container_width=True, hide_index=True, height=500)
 
     # =================================================================
-    # 6. 메인 화면 - [상세 현황 대시보드]
+    # 6. 메인 화면 - [상세 페이지 (음영 및 서식 복구)]
     # =================================================================
     else:
-        target_company = st.session_state.selected_company
-        # 우상단 로고 표시
-        if target_company in LOGO_MAP:
-            detail_logo_b64 = get_base64_encoded_image(os.path.join(LOGO_DIR, LOGO_MAP[target_company]))
-            if detail_logo_b64:
-                st.markdown(f'<div class="top-right-floating-logo"><img src="data:image/png;base64,{detail_logo_b64}"></div>', unsafe_allow_html=True)
+        target_c = st.session_state.sel_comp
+        if target_c in LOGO_MAP:
+            d_logo = convert_image_to_base64(os.path.join(LOGO_PATH, LOGO_MAP[target_c]))
+            if d_logo: st.markdown(f'<div class="floating-logo"><img src="data:image/png;base64,{d_logo}"></div>', unsafe_allow_html=True)
         
-        st.markdown(f"### 🏢 {target_company} 상세 실적 현황 ({selected_month}월)")
-        search_match_key = target_company.replace(' ', '').upper()
+        st.markdown(f"### 🏢 {target_c} 상세 현황")
+        m_key = target_c.replace(' ', '').upper()
 
-        # --- 1. 물동량 상세 정보 테이블 ---
-        st.markdown("#### 1. 일자별 물동량 상세")
-        vol_detail_sub = df_vol_main[df_vol_main['match_name'] == search_match_key][['구분'] + date_data_cols].copy()
-        for d_col in date_data_cols:
-            vol_detail_sub[d_col] = vol_detail_sub[d_col].apply(clean_and_convert_to_float)
-            
-        vol_grouped = vol_detail_sub.groupby('구분', sort=False).sum().reset_index()
-        vol_grouped.insert(1, '월 합계', vol_grouped[date_data_cols].sum(axis=1))
-        
-        # 하단 전체 합계 행 추가
-        vol_total_sum_row = ['일자별 합계', vol_grouped['월 합계'].sum()] + vol_grouped[date_data_cols].sum().tolist()
-        vol_display_df = pd.concat([vol_grouped, pd.DataFrame([vol_total_sum_row], columns=vol_grouped.columns)], ignore_index=True)
-        
-        # 헤더 일자별 넘버링 (1, 2, 3...)
-        clean_date_headers = {orig: str(idx+1) for idx, orig in enumerate(date_data_cols)}
-        st.dataframe(vol_display_df.rename(columns=clean_date_headers).style.format(lambda val: f"{int(val):,}" if isinstance(val, (float, int)) and val > 0 else ("-" if isinstance(val, (float, int)) else val)), use_container_width=True, hide_index=True)
+        # 표 음영 처리를 위한 스타일 함수
+        def style_sum_rows(s):
+            return ['background-color: #E6F3FF; font-weight: bold' if s.name == len(v_final)-1 else '' for _ in s]
 
-        # --- 2. 임시직 상세 정보 테이블 ---
+        # --- 1. 물동량 상세 (음영 및 서식 복구) ---
+        v_sub = df_vol[df_vol['match_name'] == m_key][['구분'] + date_cols].copy()
+        for col in date_cols: v_sub[col] = v_sub[col].apply(extract_pure_number)
+        
+        v_g = v_sub.groupby('구분', sort=False).sum().reset_index()
+        v_g.insert(1, '월 합계', v_g[date_cols].sum(axis=1))
+        
+        v_total_row = ['일자별 합계', v_g['월 합계'].sum()] + v_g[date_cols].sum().tolist()
+        v_final = pd.concat([v_g, pd.DataFrame([v_total_row], columns=v_g.columns)], ignore_index=True)
+        
+        st.markdown("#### 1. 일자별 물동량 현황")
+        # 헤더 정비 및 음영 적용
+        v_disp = v_final.rename(columns={c: str(idx+1) for idx, c in enumerate(date_cols)})
+        st.dataframe(
+            v_disp.style.apply(lambda x: ['background-color: #002D56; color: white; font-weight: bold' if x.name == len(v_final)-1 else '' for _ in x], axis=1)
+            .format(lambda x: f"{int(x):,}" if isinstance(x, (float, int)) and x > 0 else ("-" if isinstance(x, (float, int)) else x)),
+            use_container_width=True, hide_index=True
+        )
+
+        # --- 2. 임시직 상세 (연동 및 음영 복구) ---
         st.markdown("---")
-        st.markdown("#### 2. 일자별 임시직 투입 상세")
-        if not df_temp_main.empty:
-            temp_detail_sub = df_temp_main[df_temp_main['match_name'] == search_match_key].copy()
+        st.markdown("#### 2. 일자별 임시직 투입 현황")
+        if not df_tmp.empty:
+            t_sub = df_tmp[df_tmp['match_name'] == m_key].copy()
+            t_rows = []
+            for cat in ["남", "여", "지게차"]:
+                rd = t_sub[t_sub['구분'] == cat]
+                vals = [extract_pure_number(rd[c].values[0]) if not rd.empty and c in rd.columns else 0.0 for c in date_cols]
+                t_rows.append([cat] + vals)
             
-            temp_rows_collector = []
-            for category in ["남", "여", "지게차"]:
-                category_data = temp_detail_sub[temp_detail_sub['구분'] == category]
-                category_vals = [clean_and_convert_to_float(category_data[dc].values[0]) if not category_data.empty and dc in category_data.columns else 0.0 for dc in date_data_cols]
-                temp_rows_collector.append([category] + category_vals)
-                
-            temp_final_df = pd.DataFrame(temp_rows_collector, columns=['구분'] + date_data_cols)
-            temp_final_df.insert(1, '월 합계', temp_final_df[date_data_cols].sum(axis=1))
+            t_df = pd.DataFrame(t_rows, columns=['구분'] + date_cols)
+            t_df.insert(1, '월 합계', t_df[date_cols].sum(axis=1))
+            t_total_row = ['일자별 합계', t_df['월 합계'].sum()] + t_df[date_cols].sum().tolist()
+            t_final = pd.concat([t_df, pd.DataFrame([t_total_row], columns=t_df.columns)], ignore_index=True)
             
-            # 하단 전체 합계 행 추가
-            temp_total_sum_row = ['일자별 합계', temp_final_df['월 합계'].sum()] + temp_final_df[date_data_cols].sum().tolist()
-            temp_display_df = pd.concat([temp_final_df, pd.DataFrame([temp_total_sum_row], columns=temp_final_df.columns)], ignore_index=True)
-            
-            st.dataframe(temp_display_df.rename(columns=clean_date_headers).style.format(lambda val: f"{int(val):,}" if isinstance(val, (float, int)) and val > 0 else ("-" if isinstance(val, (float, int)) else val)), use_container_width=True, hide_index=True)
+            st.dataframe(
+                t_final.rename(columns={c: str(idx+1) for idx, c in enumerate(date_cols)})
+                .style.apply(lambda x: ['background-color: #F0F2F6; font-weight: bold' if x.name == len(t_final)-1 else '' for _ in x], axis=1)
+                .format(lambda x: f"{int(x):,}" if isinstance(x, (float, int)) and x > 0 else ("-" if isinstance(x, (float, int)) else x)),
+                use_container_width=True, hide_index=True
+            )
 
-# 푸터 영역
 st.sidebar.write("---")
-st.sidebar.caption("© 2026 HanExpress Nam-Icheon Center | 물동량 관리 시스템 v2.5")
+st.sidebar.caption("© 2026 HanExpress Nam-Icheon Center")
