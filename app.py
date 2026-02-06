@@ -25,7 +25,6 @@ def get_b64(p):
             return base64.b64encode(f.read()).decode()
     return None
 
-# 3. 디자인 테마
 def apply_theme():
     b64_bg = get_b64(C_IMG)
     bg_css = f"""
@@ -40,16 +39,13 @@ def apply_theme():
         background-color: #002D56 !important; color: white !important; border-radius: 5px !important;
         top: 10px !important; right: -20px !important; opacity: 1 !important; box-shadow: 0 2px 5px rgba(0,0,0,0.2);
     }}
-    
     @keyframes scroll {{ 0% {{ transform: translateX(0); }} 100% {{ transform: translateX(calc(-150px * 8)); }} }}
     .slider {{ background: white; height: 100px; margin: auto; overflow: hidden; position: relative; width: 100%; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); margin-bottom: 25px; display: flex; align-items: center; }}
     .slide-track {{ animation: scroll 60s ease-in-out infinite alternate; display: flex; width: calc(150px * 15); }}
     .slide {{ height: 80px; width: 150px; display: flex; align-items: center; justify-content: center; padding: 10px; }}
     .slide img {{ max-height: 100%; max-width: 100%; object-fit: contain; }}
-
     [data-testid='stMetric'] {{ background-color: white !important; padding: 20px !important; border-radius: 15px !important; box-shadow: 0 4px 15px rgba(0,0,0,0.1) !important; border-left: 8px solid #E30613 !important; }}
     h1, h2, h3 {{ color: #002D56 !important; font-weight: 900 !important; }}
-    
     .logo-container {{ position: relative; width: 100%; height: 80px; display: flex; align-items: center; justify-content: center; overflow: hidden; }}
     .stButton>button {{ position: absolute !important; top: 0 !important; left: 0 !important; width: 100% !important; height: 100% !important; background: transparent !important; border: none !important; color: transparent !important; z-index: 999 !important; cursor: pointer !important; }}
     </style>
@@ -66,7 +62,6 @@ def render_logo_slider():
 
 apply_theme()
 
-# --- 데이터 로드 ---
 URL = f"https://docs.google.com/spreadsheets/d/14-mE7GtbShJqAHwiuBlZsVFFg8FKuy5tsrcX92ecToY/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote('구글 데이터')}"
 
 @st.cache_data(ttl=10)
@@ -97,12 +92,10 @@ if df is not None:
             st.rerun()
         if os.path.exists(H_LOG): st.image(H_LOG, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
-        
         selected = st.radio("📍 화주사 목록", comps, index=None if st.session_state.view == 'home' else (comps.index(st.session_state.sel_comp) if 'sel_comp' in st.session_state else 0))
         if selected:
             st.session_state.view = 'detail'
             st.session_state.sel_comp = selected
-            
         mon = st.selectbox("📅 조회 월 선택", [f"{i:02d}" for i in range(1, 13)])
         t_cols = [c for c in cols2026 if c.startswith(f"2026-{mon}")]
 
@@ -116,7 +109,6 @@ if df is not None:
             res.append({"화주사": c, "월 물동량 합계": v_sum})
         sdf = pd.DataFrame(res)
         st.metric("📦 센터 전체 물동량 계", f"{int(sdf['월 물동량 합계'].sum()):,}")
-        
         c1, c2 = st.columns([1.6, 1])
         with c1:
             st.markdown(f"#### 📈 화주사별 분석 ({mon}월)")
@@ -126,50 +118,51 @@ if df is not None:
             st.dataframe(sdf.applymap(lambda x: f"{int(x):,}" if isinstance(x, (int, float)) else x), use_container_width=True, hide_index=True, height=380)
 
     else:
-        # --- 상세 페이지 ---
         menu = st.session_state.sel_comp
         if menu in L_MAP:
             p = os.path.join(L_DIR, L_MAP[menu])
             if os.path.exists(p): st.image(p, width=180)
-            
         st.markdown(f"## {menu} 상세 현황")
         cdf = df[df['화주사'] == menu]
         if not cdf.empty:
+            # 🔥 [해결] 구분값 순서 유지를 위해 원본 구분값 리스트 미리 확보
+            orig_order = list(dict.fromkeys(cdf['구분'].dropna().tolist()))
+            
             df_detail = cdf[cdf['구분'].notna()][['구분'] + t_cols].copy()
             for c in t_cols: df_detail[c] = df_detail[c].apply(to_n)
             
-            df_grouped = df_detail.groupby('구분').sum().reset_index()
+            # 그룹화 후 원본 순서대로 재정렬
+            df_grouped = df_detail.groupby('구분', sort=False).sum().reset_index()
+            df_grouped['구분'] = pd.Categorical(df_grouped['구분'], categories=orig_order, ordered=True)
+            df_grouped = df_grouped.sort_values('구분')
             
-            # 1. 월 합계 계산
+            # 월 합계 계산 및 위치 조정
             df_grouped['월 합계'] = df_grouped[t_cols].sum(axis=1)
-            
-            # 2. 열 순서 변경: [구분, 월 합계, 01, 02, ...]
-            cols_order = ['구분', '월 합계'] + t_cols
-            dt_display = df_grouped[cols_order].copy()
+            dt_display = df_grouped[['구분', '월 합계'] + t_cols].copy()
             
             # 그래프 출력
             df_chart = df_grouped.set_index('구분')[t_cols].transpose()
             df_chart.index = df_chart.index.map(lambda x: x.split("-")[-1])
             fig = go.Figure()
             for column in df_chart.columns:
-                fig.add_trace(go.Bar(name=column, x=df_chart.index, y=df_chart[column]))
+                fig.add_trace(go.Bar(name=str(column), x=df_chart.index, y=df_chart[column]))
             fig.add_trace(go.Scatter(name='일일 합계', x=df_chart.index, y=df_chart.sum(axis=1), mode='lines+markers', line=dict(color='#E30613', width=3)))
             fig.update_layout(barmode='stack', hovermode="x unified", legend=dict(orientation="h", y=1.1), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', margin=dict(l=10, r=10, t=50, b=10))
             st.plotly_chart(fig, use_container_width=True)
             
-            # 3. 표 스타일 및 출력 (음영 추가)
+            # 🔥 [해결] 숫자 0을 '-'로 변환하여 표 출력 (음영 유지)
             new_cols = {c: c.split("-")[-1] for c in t_cols}
             dt_final = dt_display.rename(columns=new_cols)
             
+            def format_val(x):
+                if isinstance(x, (int, float)):
+                    return f"{int(x):,}" if x > 0 else "-"
+                return x
+
+            # 스타일 적용 (월 합계 열 음영)
             def style_row(row):
-                # '월 합계' 열(두 번째 열)에 배경색 지정
                 return ['' if col != '월 합계' else 'background-color: #F0F2F6; font-weight: bold;' for col in dt_final.columns]
 
-            # 숫자 포맷팅 및 스타일 적용
-            formatted_df = dt_final.style.apply(style_row, axis=1).format({
-                col: "{:,.0f}" for col in dt_final.columns if col != '구분'
-            })
-            
-            st.dataframe(formatted_df, use_container_width=True, hide_index=True)
+            st.dataframe(dt_final.style.apply(style_row, axis=1).format(format_val), use_container_width=True, hide_index=True)
 
 st.sidebar.caption("© 2026 HanExpress Nam-Icheon Center")
