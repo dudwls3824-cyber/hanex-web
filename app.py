@@ -5,7 +5,7 @@ import urllib.parse, os, base64
 # 1. 페이지 설정
 st.set_page_config(page_title="남이천1센터 물동량 Dash Board", layout="wide")
 
-# 2. 이미지 및 로고 설정
+# 2. 로고 및 이미지 설정 (네이처리퍼블릭 포함)
 L_DIR = "LOGO"
 C_IMG = os.path.join(L_DIR, "센터조감도.png")
 H_LOG = os.path.join(L_DIR, "한익스_LOGO.png")
@@ -56,32 +56,33 @@ def render_logo_slider():
 
 apply_theme()
 
-# --- 데이터 로딩 함수 개선 ---
+# --- 데이터 로딩 함수 (헤더 인식 강화) ---
 @st.cache_data(ttl=10)
 def load_csv_data(sheet_name):
     try:
         url = f"https://docs.google.com/spreadsheets/d/14-mE7GtbShJqAHwiuBlZsVFFg8FKuy5tsrcX92ecToY/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote(sheet_name)}"
-        # 헤더를 찾기 위해 넉넉하게 10행 읽기
-        temp_df = pd.read_csv(url, nrows=10, header=None)
+        # 시트를 통째로 읽어옴
+        all_data = pd.read_csv(url, header=None)
+        
+        # '화주사' 단어가 있는 행 인덱스 찾기
         h_idx = 0
-        for i, row in temp_df.iterrows():
+        for i, row in all_data.iterrows():
             if '화주사' in row.values:
                 h_idx = i
                 break
         
+        # 찾은 헤더 행부터 다시 읽기
         df = pd.read_csv(url, header=h_idx)
         df.columns = df.columns.str.strip()
-        # 불필요한 빈 행 제거
         df = df.dropna(subset=['화주사', '구분'])
-        # 'None' 텍스트 제거
         df = df[df['구분'].astype(str).str.lower() != 'none']
         return df
-    except Exception as e:
+    except:
         return pd.DataFrame()
 
 def to_n(x):
-    if pd.isna(x): return 0
     try:
+        if pd.isna(x): return 0
         v = str(x).replace(',', '').strip()
         if v in ["-", "", "nan", "None", "0", "0.0"]: return 0
         return float(v)
@@ -104,19 +105,26 @@ if not df_vol.empty:
         selected = st.radio("📍 화주사 목록", comps, index=None if st.session_state.view == 'home' else (comps.index(st.session_state.sel_comp) if 'sel_comp' in st.session_state else 0))
         if selected: st.session_state.view = 'detail'; st.session_state.sel_comp = selected
         mon = st.selectbox("📅 조회 월 선택", [f"{i:02d}" for i in range(1, 13)])
-        t_cols = [c for c in cols2026 if c in df_vol.columns and c.startswith(f"2026-{mon}")]
+        t_cols = [c for c in cols2026 if c.startswith(f"2026-{mon}")]
 
     if st.session_state.view == 'home':
         st.title("📊 남이천1센터 물동량 Dash Board")
         render_logo_slider()
+        
+        # 홈 화면 요약표 계산 (임시직 합계 정밀 계산)
         res = []
         for c in comps:
-            v_sum = df_vol[df_vol['화주사'] == c][t_cols].applymap(to_n).sum().sum()
-            # 임시직 시트에서도 동일한 컬럼이 있는지 확인 후 합산
+            v_rows = df_vol[df_vol['화주사'] == c]
+            v_sum = v_rows[t_cols].applymap(to_n).sum().sum()
+            
             t_sum = 0
             if not df_temp.empty:
-                t_cols_temp = [col for col in t_cols if col in df_temp.columns]
-                t_sum = df_temp[df_temp['화주사'] == c][t_cols_temp].applymap(to_n).sum().sum()
+                # '임시직' 시트에 존재하는 해당 월 날짜 컬럼만 필터링
+                t_cols_actual = [col for col in t_cols if col in df_temp.columns]
+                if t_cols_actual:
+                    t_rows = df_temp[df_temp['화주사'] == c]
+                    t_sum = t_rows[t_cols_actual].applymap(to_n).sum().sum()
+            
             res.append({"화주사": c, "물동량 합계": v_sum, "임시직 합계": t_sum})
         
         sdf = pd.DataFrame(res)
@@ -133,6 +141,7 @@ if not df_vol.empty:
             st.dataframe(sdf_fmt, use_container_width=True, hide_index=True, height=450)
 
     else:
+        # --- 상세 페이지 ---
         menu = st.session_state.sel_comp
         if menu in L_MAP:
             logo_path = os.path.join(L_DIR, L_MAP[menu])
@@ -146,7 +155,7 @@ if not df_vol.empty:
                 return f"{int(num):,}" if num > 0 else "-"
             except: return str(x)
 
-        # 1. 물동량 현황
+        # 1. 물동량 현황 (월 합계 열 위치 유지)
         st.markdown("#### 1. 물동량 현황")
         v_df = df_vol[df_vol['화주사'] == menu][['구분'] + t_cols].copy()
         for c in t_cols: v_df[c] = v_df[c].apply(to_n)
@@ -158,38 +167,34 @@ if not df_vol.empty:
         v_disp = v_final[['구분', '월 합계'] + t_cols].rename(columns={c: c.split("-")[-1] for c in t_cols})
         st.dataframe(v_disp.style.apply(lambda x: ['background-color: #F0F2F6; font-weight: bold' if x.name == '월 합계' else '' for _ in x], axis=0).format(format_val), use_container_width=True, hide_index=True)
 
-        # 2. 임시직 현황 (데이터 매칭 강화)
+        # 2. 임시직 현황 (데이터 매칭 로직 강화)
         st.markdown("---")
         st.markdown("#### 2. 임시직 투입 현황")
         if not df_temp.empty:
-            t_cols_temp = [col for col in t_cols if col in df_temp.columns]
-            t_df = df_temp[df_temp['화주사'] == menu][['구분'] + t_cols_temp].copy()
-            for c in t_cols_temp: t_df[c] = t_df[c].apply(to_n)
+            t_cols_actual = [col for col in t_cols if col in df_temp.columns]
+            t_df = df_temp[df_temp['화주사'] == menu][['구분'] + t_cols_actual].copy()
+            for c in t_cols_actual: t_df[c] = t_df[c].apply(to_n)
             
             t_g = t_df.groupby('구분', sort=False).sum().reset_index()
             temp_items = ["남", "여", "지게차"]
-            # 데이터가 없는 항목은 0으로 채움
             for item in temp_items:
                 if item not in t_g['구분'].values:
-                    t_g = pd.concat([t_g, pd.DataFrame([{'구분':item, **{c:0 for c in t_cols_temp}}])], ignore_index=True)
+                    t_g = pd.concat([t_g, pd.DataFrame([{'구분':item, **{c:0 for c in t_cols_actual}}])], ignore_index=True)
             
             t_g = t_g[t_g['구분'].isin(temp_items)].copy()
             t_g['구분'] = pd.Categorical(t_g['구분'], categories=temp_items, ordered=True)
             t_g = t_g.sort_values('구분')
-            t_g['월 합계'] = t_g[t_cols_temp].sum(axis=1)
+            t_g['월 합계'] = t_g[t_cols_actual].sum(axis=1)
             
-            day_sum = t_g[['월 합계'] + t_cols_temp].sum()
-            sum_row = pd.DataFrame([['일자별 합계'] + day_sum.tolist()], columns=['구분', '월 합계'] + t_cols_temp)
-            t_final = pd.concat([t_g[['구분', '월 합계'] + t_cols_temp], sum_row], ignore_index=True)
+            day_sum = t_g[['월 합계'] + t_cols_actual].sum()
+            sum_row = pd.DataFrame([['일자별 합계'] + day_sum.tolist()], columns=['구분', '월 합계'] + t_cols_actual)
+            t_final = pd.concat([t_g[['구분', '월 합계'] + t_cols_actual], sum_row], ignore_index=True)
             
-            # 부족한 날짜 컬럼 보충 (물동량 시트에는 있고 임시직 시트에는 없을 경우 대비)
+            # 부족한 날짜 컬럼 보정
             for c in t_cols:
-                if c.split("-")[-1] not in [col.split("-")[-1] for col in t_final.columns]:
-                    t_final[c] = 0
-
-            t_disp = t_final[['구분', '월 합계'] + t_cols_temp].rename(columns={c: c.split("-")[-1] for c in t_cols_temp})
+                if c not in t_final.columns: t_final[c] = 0
+                
+            t_disp = t_final[['구분', '월 합계'] + t_cols].rename(columns={c: c.split("-")[-1] for c in t_cols})
             st.dataframe(t_disp.style.apply(lambda x: ['background-color: #F0F2F6; font-weight: bold' if x.name == '월 합계' else '' for _ in x], axis=0).format(format_val), use_container_width=True, hide_index=True)
-        else:
-            st.warning("임시직 시트에서 데이터를 불러오지 못했습니다. 시트 명칭이나 컬럼명을 확인해주세요.")
 
 st.sidebar.caption("© 2026 HanExpress Nam-Icheon Center")
