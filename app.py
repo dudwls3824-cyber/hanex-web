@@ -11,7 +11,6 @@ L_DIR = "LOGO"
 C_IMG = os.path.join(L_DIR, "센터조감도.png")
 H_LOG = os.path.join(L_DIR, "한익스_LOGO.png")
 
-# 로고 매핑 (상세페이지 로고 출력용)
 L_MAP = {
     "DKSH L&L":"DKSH L&L_LOGO.png","대호 F&B":"대호 F&B_LOGO.png","덴비코리아":"덴비_LOGO.png",
     "막시무스코리아":"막시무스_LOGO.png","매그니프":"매그니프_LOGO.png","멘소래담":"멘소래담_LOGO.png",
@@ -26,7 +25,7 @@ def get_b64(p):
             return base64.b64encode(f.read()).decode()
     return None
 
-# 3. 디자인 테마 (핸들 남색 고정 + 슬라이더 속도 조절 CSS)
+# 3. 디자인 테마
 def apply_theme():
     b64_bg = get_b64(C_IMG)
     bg_css = f"""
@@ -37,14 +36,11 @@ def apply_theme():
         background-size: cover; background-position: center; background-attachment: fixed;
     }}
     [data-testid='stSidebar'] {{ background-color: #FFFFFF !important; border-top: 25px solid #E30613 !important; border-bottom: 35px solid #002D56 !important; }}
-    
     [data-testid="stSidebarCollapseButton"] {{
         background-color: #002D56 !important; color: white !important; border-radius: 5px !important;
         top: 10px !important; right: -20px !important; opacity: 1 !important; box-shadow: 0 2px 5px rgba(0,0,0,0.2);
     }}
-    [data-testid="stSidebarCollapseButton"]:hover {{ background-color: #E30613 !important; }}
     
-    /* 🔥 로고 슬라이더 왕복 애니메이션 (속도 60초로 늦춤) */
     @keyframes scroll {{ 0% {{ transform: translateX(0); }} 100% {{ transform: translateX(calc(-150px * 8)); }} }}
     .slider {{ background: white; height: 100px; margin: auto; overflow: hidden; position: relative; width: 100%; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); margin-bottom: 25px; display: flex; align-items: center; }}
     .slide-track {{ animation: scroll 60s ease-in-out infinite alternate; display: flex; width: calc(150px * 15); }}
@@ -92,8 +88,6 @@ df = load_data()
 if df is not None:
     if 'view' not in st.session_state: st.session_state.view = 'home'
     cols2026 = [c for c in df.columns if "2026-" in c]
-    
-    # 시트 순서 그대로 유지
     comps = list(dict.fromkeys(df['화주사'].dropna().tolist()))
     
     with st.sidebar:
@@ -146,19 +140,36 @@ if df is not None:
             
             df_grouped = df_detail.groupby('구분').sum().reset_index()
             
+            # 1. 월 합계 계산
+            df_grouped['월 합계'] = df_grouped[t_cols].sum(axis=1)
+            
+            # 2. 열 순서 변경: [구분, 월 합계, 01, 02, ...]
+            cols_order = ['구분', '월 합계'] + t_cols
+            dt_display = df_grouped[cols_order].copy()
+            
+            # 그래프 출력
             df_chart = df_grouped.set_index('구분')[t_cols].transpose()
             df_chart.index = df_chart.index.map(lambda x: x.split("-")[-1])
-            
             fig = go.Figure()
             for column in df_chart.columns:
                 fig.add_trace(go.Bar(name=column, x=df_chart.index, y=df_chart[column]))
             fig.add_trace(go.Scatter(name='일일 합계', x=df_chart.index, y=df_chart.sum(axis=1), mode='lines+markers', line=dict(color='#E30613', width=3)))
-            
             fig.update_layout(barmode='stack', hovermode="x unified", legend=dict(orientation="h", y=1.1), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', margin=dict(l=10, r=10, t=50, b=10))
             st.plotly_chart(fig, use_container_width=True)
             
-            dt_display = df_grouped.copy()
-            for c in t_cols: dt_display[c] = dt_display[c].apply(lambda x: f"{int(x):,}" if x > 0 else "-")
-            st.dataframe(dt_display.rename(columns=lambda x: x.split("-")[-1] if "2026-" in x else x), use_container_width=True, hide_index=True)
+            # 3. 표 스타일 및 출력 (음영 추가)
+            new_cols = {c: c.split("-")[-1] for c in t_cols}
+            dt_final = dt_display.rename(columns=new_cols)
+            
+            def style_row(row):
+                # '월 합계' 열(두 번째 열)에 배경색 지정
+                return ['' if col != '월 합계' else 'background-color: #F0F2F6; font-weight: bold;' for col in dt_final.columns]
+
+            # 숫자 포맷팅 및 스타일 적용
+            formatted_df = dt_final.style.apply(style_row, axis=1).format({
+                col: "{:,.0f}" for col in dt_final.columns if col != '구분'
+            })
+            
+            st.dataframe(formatted_df, use_container_width=True, hide_index=True)
 
 st.sidebar.caption("© 2026 HanExpress Nam-Icheon Center")
