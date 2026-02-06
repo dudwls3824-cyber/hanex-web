@@ -9,12 +9,15 @@ st.set_page_config(page_title="남이천1센터 물동량 Dash Board", layout="w
 L_DIR = "LOGO"
 C_IMG = os.path.join(L_DIR, "센터조감도.png")
 H_LOG = os.path.join(L_DIR, "한익스_LOGO.png")
+
+# 네이처리퍼블릭 로고 추가 완료
 L_MAP = {
     "DKSH L&L":"DKSH L&L_LOGO.png","대호 F&B":"대호 F&B_LOGO.png","덴비코리아":"덴비_LOGO.png",
     "막시무스코리아":"막시무스_LOGO.png","매그니프":"매그니프_LOGO.png","멘소래담":"멘소래담_LOGO.png",
     "머거본":"머거본_LOGO.png","바이오포트코리아":"바이오포트코리아_LOGO.png","시세이도":"시세이도_LOGO.png",
     "유니레버":"유니레버_LOGO.png","커머스파크":"커머스파크_LOGO.png","펄세스":"펄세스_LOGO.png",
-    "PRODENTI":"프로덴티_LOGO.png","한국프리오":"한국프리오_LOGO.png","헨켈홈케어":"헨켈홈케어_LOGO.png"
+    "PRODENTI":"프로덴티_LOGO.png","한국프리오":"한국프리오_LOGO.png","헨켈홈케어":"헨켈홈케어_LOGO.png",
+    "네이처리퍼블릭":"네이처리퍼블릭_LOGO.png"  # <-- 추가된 로고
 }
 
 def get_b64(p):
@@ -129,7 +132,7 @@ if not df_vol.empty:
                 return f"{int(num):,}" if num > 0 else "-"
             except: return str(x)
 
-        # 1. 물동량 현황 (월 합계 열 위치 복구: 2번째 열)
+        # 1. 물동량 현황 (월 합계 열 위치 고정: 2번째 열)
         st.markdown("#### 1. 물동량 현황")
         v_df = df_vol[df_vol['화주사'] == menu][['구분'] + t_cols].copy()
         for c in t_cols: v_df[c] = v_df[c].apply(to_n)
@@ -140,11 +143,10 @@ if not df_vol.empty:
         v_sum_row = pd.DataFrame([['일자별 합계'] + v_day_sum.tolist()], columns=['구분', '월 합계'] + t_cols)
         v_final = pd.concat([v_g, v_sum_row], ignore_index=True)
         
-        # 열 순서 고정: 구분 -> 월 합계 -> 날짜들
         v_disp = v_final[['구분', '월 합계'] + t_cols].rename(columns={c: c.split("-")[-1] for c in t_cols})
         st.dataframe(v_disp.style.apply(lambda x: ['background-color: #F0F2F6; font-weight: bold' if x.name == '월 합계' else '' for _ in x], axis=0).format(format_val), use_container_width=True, hide_index=True)
 
-        # 2. 임시직 현황 (월 합계 열 위치 복구: 2번째 열)
+        # 2. 임시직 현황 (월 합계 열 위치 고정: 2번째 열)
         st.markdown("---")
         st.markdown("#### 2. 임시직 투입 현황")
         if not df_temp.empty:
@@ -164,7 +166,6 @@ if not df_vol.empty:
             sum_row = pd.DataFrame([['일자별 합계'] + day_sum.tolist()], columns=['구분', '월 합계'] + t_cols)
             t_final = pd.concat([t_g[['구분', '월 합계'] + t_cols], sum_row], ignore_index=True)
             
-            # 열 순서 고정: 구분 -> 월 합계 -> 날짜들
             t_disp = t_final[['구분', '월 합계'] + t_cols].rename(columns={c: c.split("-")[-1] for c in t_cols})
             st.dataframe(t_disp.style.apply(lambda x: ['background-color: #F0F2F6; font-weight: bold' if x.name == '월 합계' else '' for _ in x], axis=0).format(format_val), use_container_width=True, hide_index=True)
 
