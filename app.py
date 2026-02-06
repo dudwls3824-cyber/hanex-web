@@ -5,12 +5,22 @@ import os
 import base64
 import re
 
-# 1. 페이지 설정
-st.set_page_config(page_title="남이천1센터 물동량 Dash Board", layout="wide")
+# =================================================================
+# 1. 페이지 설정 및 초기화 (영진님 원칙: 로직 누락 절대 금지)
+# =================================================================
+st.set_page_config(
+    page_title="남이천1센터 물동량 Dash Board",
+    page_icon="📦",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
+# 폴더 경로 및 로고 정의 (절대 경로 보존)
 LOGO_DIR = "LOGO"
 C_IMG = os.path.join(LOGO_DIR, "센터조감도.png")
 H_LOG = os.path.join(LOGO_DIR, "한익스_LOGO.png")
+
+# 화주사 로고 매핑 (전체 리스트 보존)
 L_MAP = {
     "DKSH L&L":"DKSH L&L_LOGO.png","대호 F&B":"대호 F&B_LOGO.png","덴비코리아":"덴비_LOGO.png",
     "막시무스코리아":"막시무스코리아.png","매그니프":"매그니프_LOGO.png","멘소래담":"멘소래담_LOGO.png",
@@ -20,39 +30,58 @@ L_MAP = {
     "네이처리퍼블릭":"네이처리퍼블릭_LOGO.png"
 }
 
+# =================================================================
+# 2. 유틸리티 함수 (영진님의 0점 데이터 정밀 처리)
+# =================================================================
 def get_b64(p):
+    """이미지 파일을 Base64로 안전하게 변환"""
     if os.path.exists(p):
         with open(p, "rb") as f: return base64.b64encode(f.read()).decode()
     return None
 
 def clean_num(x):
-    if pd.isna(x) or str(x).strip() in ["", "-", "None"]: return 0.0
+    """영진님이 0으로 채우신 모든 칸을 정확히 숫자로 인식"""
+    if pd.isna(x) or str(x).strip() in ["", "-", "None", "nan"]:
+        return 0.0
     try:
         s = str(x).replace(',', '').strip()
         nums = re.findall(r'\d+\.?\d*', s)
         return float(nums[0]) if nums else 0.0
-    except: return 0.0
+    except:
+        return 0.0
 
 @st.cache_data(ttl=1)
 def fetch_data(sheet_name):
-    """선택된 월 또는 특정 시트 로드"""
+    """구글 시트에서 데이터를 정밀하게 로드하고 매칭 키 생성"""
     try:
         gsid = "14-mE7GtbShJqAHwiuBlZsVFFg8FKuy5tsrcX92ecToY"
-        # 월 선택 시트면 '월'을 붙이고, 아니면(임시직 등) 그대로 사용
-        target = f"{sheet_name}월" if sheet_name.isdigit() else sheet_name
-        url = f"https://docs.google.com/spreadsheets/d/{gsid}/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote(target)}"
+        # 월 선택 시트면 '월'을 붙이고, 아니면 그대로 사용
+        target_sheet = f"{sheet_name}월" if sheet_name.isdigit() else sheet_name
+        url = f"https://docs.google.com/spreadsheets/d/{gsid}/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote(target_sheet)}"
+        
         df_raw = pd.read_csv(url, header=None, dtype=str)
+        
+        # '화주사' 텍스트가 있는 행을 헤더로 찾기
         h_idx = 0
         for i, row in df_raw.iterrows():
-            if '화주사' in row.values: h_idx = i; break
+            if '화주사' in row.values:
+                h_idx = i
+                break
+        
         df = df_raw.iloc[h_idx+1:].copy()
         df.columns = [str(c).strip() if pd.notna(c) else f"col_{idx}" for idx, c in enumerate(df_raw.iloc[h_idx])]
+        
+        # 필수 열 필터링 및 매칭용 이름 생성 (공백 제거)
         df = df.dropna(subset=['화주사', '구분'])
-        df['match_name'] = df['화주사'].astype(str).str.replace(' ', '').str.upper()
+        df['match_name'] = df['화주사'].astype(str).str.replace(r'\s+', '', regex=True).str.upper()
+        
         return df
-    except: return pd.DataFrame()
+    except Exception as e:
+        return pd.DataFrame()
 
-# 스타일 (유지)
+# =================================================================
+# 3. CSS 스타일링 (영진님의 배경 및 투명 버튼 원상복구)
+# =================================================================
 bg_b64 = get_b64(C_IMG)
 st.markdown(f"""
 <style>
@@ -75,39 +104,55 @@ st.markdown(f"""
 </style>
 """, unsafe_allow_html=True)
 
-# --- 사이드바 및 데이터 로드 ---
+# =================================================================
+# 4. 사이드바 제어 및 데이터 로드 (날짜 정밀 필터링 포함)
+# =================================================================
 with st.sidebar:
     st.markdown('<div class="logo-container">', unsafe_allow_html=True)
-    if st.button("H"): st.session_state.view = 'home'; st.rerun()
-    if os.path.exists(H_LOG): st.image(H_LOG, use_container_width=True)
+    if st.button("HOME_CLICK"):
+        st.session_state.view = 'home'
+        st.rerun()
+    if os.path.exists(H_LOG):
+        st.image(H_LOG, use_container_width=True)
     st.markdown('</div>', unsafe_allow_html=True)
+    
     st.write("---")
     
+    # 월 선택박스 (데이터 로드 전 배치)
     mon = st.selectbox("📅 조회 월 선택", [f"{i:02d}" for i in range(1, 13)])
+    
     df_vol = fetch_data(mon)
     df_temp = fetch_data('임시직')
 
     if not df_vol.empty:
         comps = list(dict.fromkeys(df_vol['화주사'].tolist()))
         if 'view' not in st.session_state: st.session_state.view = 'home'
-        curr_idx = comps.index(st.session_state.sel_comp) if ('sel_comp' in st.session_state and st.session_state.sel_comp in comps) else 0
+        if 'sel_comp' not in st.session_state: st.session_state.sel_comp = comps[0]
+        
+        curr_idx = comps.index(st.session_state.sel_comp) if st.session_state.sel_comp in comps else 0
         selected = st.radio("📍 화주사 목록", comps, index=curr_idx if st.session_state.view == 'detail' else None)
+        
         if selected:
             st.session_state.view = 'detail'
             st.session_state.sel_comp = selected
-        
-        date_cols = [c for c in df_vol.columns if re.search(r'^\d{1,2}$|^\d{4}-\d{2}-\d{2}$', str(c).strip())]
+            
+        # [정밀 복구] 선택한 월의 숫자 날짜(01~31)만 추출하여 다른 월 노출 차단
+        date_cols = [c for c in df_vol.columns if re.match(r'^\d{1,2}$', str(c).strip())]
 
-# --- 메인 화면 ---
+# =================================================================
+# 5. 메인 화면 로직
+# =================================================================
 if not df_vol.empty:
     if st.session_state.view == 'home':
         st.title(f"📊 남이천1센터 {mon}월 물동량 Dash Board")
+        
+        # 로고 슬라이더 복원
         slides_html = "".join([f'<div class="slide"><img src="data:image/png;base64,{get_b64(os.path.join(LOGO_DIR, f))}"></div>' for n, f in L_MAP.items() if get_b64(os.path.join(LOGO_DIR, f))])
         st.markdown(f'<div class="slider"><div class="slide-track">{slides_html}</div></div>', unsafe_allow_html=True)
         
         res = []
         for c in comps:
-            m_name = c.replace(' ', '').upper()
+            m_name = re.sub(r'\s+', '', c).upper()
             v_sum = df_vol[df_vol['match_name'] == m_name][date_cols].applymap(clean_num).sum().sum()
             t_sum = 0
             if not df_temp.empty:
@@ -117,23 +162,25 @@ if not df_vol.empty:
             res.append({"화주사": c, "물동량 합계": v_sum, "임시직 합계": t_sum})
         
         sum_df = pd.DataFrame(res)
-        st.markdown(f'<div style="background-color: #002D56; padding: 25px; border-radius: 15px; text-align: center; margin-bottom: 25px; border: 2px solid #FFD700;"><h3 style="color: white; margin: 0;">📦 {mon}월 센터 전체 물동량 계</h3><h1 style="color: #FFD700; margin: 10px 0; font-size: 3.5rem;">{int(sum_df["물동량 합계"].sum()):,}</h1></div>', unsafe_allow_html=True)
+        st.markdown(f"""<div style="background-color: #002D56; padding: 25px; border-radius: 15px; text-align: center; margin-bottom: 25px; border: 2px solid #FFD700;">
+            <h3 style="color: white; margin: 0;">📦 {mon}월 센터 전체 물동량 계</h3>
+            <h1 style="color: #FFD700; margin: 10px 0; font-size: 3.5rem;">{int(sum_df["물동량 합계"].sum()):,}</h1></div>""", unsafe_allow_html=True)
         
         c1, c2 = st.columns([1.5, 1])
         with c1: st.bar_chart(sum_df.set_index('화주사')['물동량 합계'], color="#002D56")
         with c2: st.dataframe(sum_df.assign(**{col: sum_df[col].apply(lambda x: f"{int(x):,}" if x > 0 else "-") for col in ["물동량 합계", "임시직 합계"]}), use_container_width=True, hide_index=True, height=500)
 
     else:
-        # --- 상세 페이지 (임시직 로직 및 음영 완전 복구) ---
+        # --- 상세 페이지 (임시직 로직 + 음영 + 날짜 필터링 완전 복구) ---
         menu = st.session_state.sel_comp
         if menu in L_MAP:
             b_logo = get_b64(os.path.join(LOGO_DIR, L_MAP[menu]))
             if b_logo: st.markdown(f'<div class="top-right-logo"><img src="data:image/png;base64,{b_logo}"></div>', unsafe_allow_html=True)
         
         st.markdown(f"### 🏢 {menu} {mon}월 상세 현황")
-        m_name = menu.replace(' ', '').upper()
+        m_name = re.sub(r'\s+', '', menu).upper()
 
-        # 1. 물동량
+        # 1. 물동량 상세
         v_sub = df_vol[df_vol['match_name'] == m_name][['구분'] + date_cols].copy()
         for col in date_cols: v_sub[col] = v_sub[col].apply(clean_num)
         v_g = v_sub.groupby('구분', sort=False).sum().reset_index()
@@ -141,9 +188,10 @@ if not df_vol.empty:
         v_final = pd.concat([v_g, pd.DataFrame([['일자별 합계', v_g['월 합계'].sum()] + v_g[date_cols].sum().tolist()], columns=v_g.columns)], ignore_index=True)
         
         st.markdown("#### 1. 일자별 물동량 현황")
-        st.dataframe(v_final.style.apply(lambda x: ['background-color: #002D56; color: white; font-weight: bold' if x.name == len(v_final)-1 else '' for _ in x], axis=1).format(lambda x: f"{int(x):,}" if isinstance(x, (float, int)) and x > 0 else ("-" if isinstance(x, (float, int)) else x)), use_container_width=True, hide_index=True)
+        st.dataframe(v_final.style.apply(lambda x: ['background-color: #002D56; color: white; font-weight: bold' if x.name == len(v_final)-1 else '' for _ in x], axis=1)
+                     .format(lambda x: f"{int(x):,}" if isinstance(x, (float, int)) and x > 0 else ("-" if isinstance(x, (float, int)) else x)), use_container_width=True, hide_index=True)
 
-        # 2. 임시직 (영진님 원본 로직 복구)
+        # 2. 임시직 상세 (영진님 원본 로직 완벽 보존)
         st.markdown("---")
         st.markdown("#### 2. 일자별 임시직 투입 현황")
         if not df_temp.empty:
@@ -157,6 +205,7 @@ if not df_vol.empty:
             t_df.insert(1, '월 합계', t_df[date_cols].sum(axis=1))
             t_final = pd.concat([t_df, pd.DataFrame([['일자별 합계', t_df['월 합계'].sum()] + t_df[date_cols].sum().tolist()], columns=t_df.columns)], ignore_index=True)
             
-            st.dataframe(t_final.style.apply(lambda x: ['background-color: #F0F2F6; font-weight: bold' if x.name == len(t_final)-1 else '' for _ in x], axis=1).format(lambda x: f"{int(x):,}" if isinstance(x, (float, int)) and x > 0 else ("-" if isinstance(x, (float, int)) else x)), use_container_width=True, hide_index=True)
+            st.dataframe(t_final.style.apply(lambda x: ['background-color: #F0F2F6; font-weight: bold' if x.name == len(t_final)-1 else '' for _ in x], axis=1)
+                         .format(lambda x: f"{int(x):,}" if isinstance(x, (float, int)) and x > 0 else ("-" if isinstance(x, (float, int)) else x)), use_container_width=True, hide_index=True)
 
 st.sidebar.caption("© 2026 HanExpress Nam-Icheon Center")
