@@ -52,17 +52,9 @@ def apply_theme():
     """
     st.markdown(bg_css, unsafe_allow_html=True)
 
-def render_logo_slider():
-    slides_html = ""
-    for name, file in L_MAP.items():
-        path = os.path.join(L_DIR, file)
-        b64 = get_b64(path)
-        if b64: slides_html += f'<div class="slide"><img src="data:image/png;base64,{b64}" title="{name}"></div>'
-    st.markdown(f'<div class="slider"><div class="slide-track">{slides_html}</div></div>', unsafe_allow_html=True)
-
 apply_theme()
 
-# --- 데이터 로드 (물동량 & 임시직) ---
+# --- 데이터 로드 ---
 BASE_URL = "https://docs.google.com/spreadsheets/d/14-mE7GtbShJqAHwiuBlZsVFFg8FKuy5tsrcX92ecToY/gviz/tq?tqx=out:csv"
 URL_DATA = f"{BASE_URL}&sheet={urllib.parse.quote('구글 데이터')}"
 URL_TEMP = f"{BASE_URL}&sheet={urllib.parse.quote('임시직')}"
@@ -72,20 +64,17 @@ def load_all_data():
     try:
         df = pd.read_csv(URL_DATA, header=1)
         df.columns = df.columns.str.strip()
-        
-        try:
-            df_temp = pd.read_csv(URL_TEMP, header=1)
-            df_temp.columns = df_temp.columns.str.strip()
-        except:
-            df_temp = pd.DataFrame()
-            
-        return df.dropna(subset=['화주사']), df_temp
-    except: return None, None
+        df_temp = pd.read_csv(URL_TEMP, header=1)
+        df_temp.columns = df_temp.columns.str.strip()
+        return df.dropna(subset=['화주사']), df_temp.dropna(subset=['화주사'])
+    except Exception as e:
+        st.error(f"데이터 로드 오류: {e}")
+        return None, None
 
 def to_n(x):
     try:
         v = str(x).replace(',', '').strip()
-        return float(v) if v not in ["", "-", "None", "nan", "NaN", "0"] else 0
+        return float(v) if v not in ["", "-", "None", "nan", "NaN", "0", "0.0"] else 0
     except: return 0
 
 df, df_temp = load_all_data()
@@ -110,8 +99,8 @@ if df is not None:
         t_cols = [c for c in cols2026 if c.startswith(f"2026-{mon}")]
 
     if st.session_state.view == 'home':
+        # 홈 화면 (기존 동일)
         st.title("📊 남이천1센터 물동량 Dash Board")
-        render_logo_slider()
         res = []
         for c in comps:
             cdf = df[df['화주사'] == c]
@@ -119,23 +108,21 @@ if df is not None:
             res.append({"화주사": c, "월 물동량 합계": v_sum})
         sdf = pd.DataFrame(res)
         st.metric("📦 센터 전체 물동량 계", f"{int(sdf['월 물동량 합계'].sum()):,}")
-        c1, c2 = st.columns([1.6, 1])
-        with c1:
-            st.markdown(f"#### 📈 화주사별 분석 ({mon}월)")
-            st.bar_chart(sdf.set_index('화주사'), color="#002D56")
-        with c2:
-            st.markdown("#### 📋 현황 요약")
-            st.dataframe(sdf.applymap(lambda x: f"{int(x):,}" if isinstance(x, (int, float)) else x), use_container_width=True, hide_index=True, height=380)
-
+        st.bar_chart(sdf.set_index('화주사'), color="#002D56")
     else:
         # --- 상세 페이지 ---
         menu = st.session_state.sel_comp
-        if menu in L_MAP:
-            p = os.path.join(L_DIR, L_MAP[menu])
-            if os.path.exists(p): st.image(p, width=180)
+        if menu in L_MAP and os.path.exists(os.path.join(L_DIR, L_MAP[menu])):
+            st.image(os.path.join(L_DIR, L_MAP[menu]), width=180)
         st.markdown(f"## {menu} 상세 현황")
-        
-        # --- 1. 물동량 항목 ---
+
+        def format_final_table(target_df, cols):
+            # 숫자 0 -> '-' 변환 함수
+            for c in ['월 합계'] + cols:
+                target_df[c] = target_df[c].apply(lambda x: f"{int(x):,}" if x > 0 else "-")
+            return target_df
+
+        # --- 1. 물동량 현황 ---
         st.markdown("#### 1. 물동량 현황")
         cdf = df[df['화주사'] == menu]
         if not cdf.empty:
@@ -144,44 +131,59 @@ if df is not None:
             for c in t_cols: df_detail[c] = df_detail[c].apply(to_n)
             
             df_grouped = df_detail.groupby('구분', sort=False).sum().reset_index()
-            df_grouped['구분'] = pd.Categorical(df_grouped['구분'], categories=orig_order, ordered=True)
-            df_grouped = df_grouped.sort_values('구분')
             df_grouped['월 합계'] = df_grouped[t_cols].sum(axis=1)
             
-            dt_display = df_grouped[['구분', '월 합계'] + t_cols].copy()
+            # 표 가공
+            dt_final = df_grouped[['구분', '월 합계'] + t_cols].copy()
             new_cols = {c: c.split("-")[-1] for c in t_cols}
-            dt_final = dt_display.rename(columns=new_cols)
+            dt_final = dt_final.rename(columns=new_cols)
             
-            def format_val(x):
-                if isinstance(x, (int, float)):
-                    return f"{int(x):,}" if x > 0 else "-"
-                return x
+            # 스타일링 (음영)
+            styled = dt_final.style.apply(lambda x: ['background-color: #F0F2F6; font-weight: bold' if x.name == '월 합계' else '' for _ in x], axis=0)
+            st.dataframe(format_final_table(dt_final, list(new_cols.values())), use_container_width=True, hide_index=True)
 
-            def style_sum_col(row):
-                return ['' if col != '월 합계' else 'background-color: #F0F2F6; font-weight: bold;' for col in dt_final.columns]
-
-            st.dataframe(dt_final.style.apply(style_sum_col, axis=1).format(format_val), use_container_width=True, hide_index=True)
-
-        # --- 2. 임시직 항목 추가 ---
+        # --- 2. 임시직 투입 현황 ---
         st.markdown("---")
         st.markdown("#### 2. 임시직 투입 현황")
-        if df_temp is not None and not df_temp.empty:
+        if df_temp is not None:
             t_df = df_temp[df_temp['화주사'] == menu]
             if not t_df.empty:
-                # 임시직 시트도 물동량과 동일한 구조(구분, 날짜들)라고 가정
+                # 🔥 구분값 강제 고정 (남, 여, 지게차)
+                temp_order = ["남", "여", "지게차"]
                 t_detail = t_df[t_df['구분'].notna()][['구분'] + t_cols].copy()
                 for c in t_cols: t_detail[c] = t_detail[c].apply(to_n)
                 
                 t_grouped = t_detail.groupby('구분', sort=False).sum().reset_index()
+                # 없는 항목은 0으로 채워서 순서 고정
+                for item in temp_order:
+                    if item not in t_grouped['구분'].values:
+                        new_row = {col: 0 for col in t_grouped.columns}
+                        new_row['구분'] = item
+                        t_grouped = pd.concat([t_grouped, pd.DataFrame([new_row])], ignore_index=True)
+                
+                t_grouped['구분'] = pd.Categorical(t_grouped['구분'], categories=temp_order, ordered=True)
+                t_grouped = t_grouped.sort_values('구분')
+                
+                # 🔥 월 합계 및 일자별 합계 계산
                 t_grouped['월 합계'] = t_grouped[t_cols].sum(axis=1)
                 
-                t_display = t_grouped[['구분', '월 합계'] + t_cols].copy()
-                t_final = t_display.rename(columns=new_cols)
+                # 하단에 '일자별 합계' 행 추가
+                sum_row = t_grouped[ ['월 합계'] + t_cols ].sum()
+                sum_df = pd.DataFrame([['일자별 합계'] + sum_row.tolist()], columns=['구분', '월 합계'] + t_cols)
+                t_final_data = pd.concat([t_grouped[['구분', '월 합계'] + t_cols], sum_df], ignore_index=True)
                 
-                st.dataframe(t_final.style.apply(style_sum_col, axis=1).format(format_val), use_container_width=True, hide_index=True)
+                # 열 이름 변경 (01, 02...)
+                t_final_display = t_final_data.rename(columns=new_cols)
+                
+                # 스타일 적용 (월 합계 음영 + 마지막 행 굵게)
+                def style_temp(df_data):
+                    styles = pd.DataFrame('', index=df_data.index, columns=df_data.columns)
+                    styles['월 합계'] = 'background-color: #F0F2F6; font-weight: bold'
+                    styles.iloc[-1, :] = 'background-color: #FFF4F4; font-weight: bold' # 마지막행 강조
+                    return styles
+
+                st.dataframe(format_final_table(t_final_display, list(new_cols.values())), use_container_width=True, hide_index=True)
             else:
-                st.info("해당 월의 임시직 투입 데이터가 없습니다.")
-        else:
-            st.warning("임시직 시트 데이터를 불러올 수 없습니다.")
+                st.info("해당 화주사의 임시직 데이터가 없습니다.")
 
 st.sidebar.caption("© 2026 HanExpress Nam-Icheon Center")
