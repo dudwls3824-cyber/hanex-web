@@ -9,7 +9,6 @@ st.set_page_config(page_title="남이천1센터 물동량 Dash Board", layout="w
 L_DIR = "LOGO"
 C_IMG = os.path.join(L_DIR, "센터조감도.png")
 H_LOG = os.path.join(L_DIR, "한익스_LOGO.png")
-
 L_MAP = {
     "DKSH L&L":"DKSH L&L_LOGO.png","대호 F&B":"대호 F&B_LOGO.png","덴비코리아":"덴비_LOGO.png",
     "막시무스코리아":"막시무스_LOGO.png","매그니프":"매그니프_LOGO.png","멘소래담":"멘소래담_LOGO.png",
@@ -33,14 +32,11 @@ def apply_theme():
         background-size: cover; background-position: center; background-attachment: fixed;
     }}
     [data-testid='stSidebar'] {{ background-color: #FFFFFF !important; border-top: 25px solid #E30613 !important; border-bottom: 35px solid #002D56 !important; }}
-    
-    /* 로고 슬라이더 속도 상향 (60s -> 25s) */
     @keyframes scroll {{ 0% {{ transform: translateX(0); }} 100% {{ transform: translateX(calc(-150px * 8)); }} }}
     .slider {{ background: white; height: 100px; margin: auto; overflow: hidden; position: relative; width: 100%; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); margin-bottom: 25px; display: flex; align-items: center; }}
     .slide-track {{ animation: scroll 25s ease-in-out infinite alternate; display: flex; width: calc(150px * 16); }}
     .slide {{ height: 80px; width: 150px; display: flex; align-items: center; justify-content: center; padding: 10px; }}
     .slide img {{ max-height: 100%; max-width: 100%; object-fit: contain; }}
-    
     .top-right-logo {{ position: absolute; top: -10px; right: 0px; height: 80px; width: 200px; display: flex; justify-content: flex-end; align-items: center; z-index: 100; }}
     .top-right-logo img {{ height: 60px; width: auto; object-fit: contain; }}
     [data-testid='stMetric'] {{ background-color: white !important; padding: 20px !important; border-radius: 15px !important; box-shadow: 0 4px 15px rgba(0,0,0,0.1) !important; border-left: 8px solid #E30613 !important; }}
@@ -60,26 +56,37 @@ def render_logo_slider():
 
 apply_theme()
 
+# --- 데이터 로딩 함수 개선 ---
 @st.cache_data(ttl=10)
 def load_csv_data(sheet_name):
     try:
         url = f"https://docs.google.com/spreadsheets/d/14-mE7GtbShJqAHwiuBlZsVFFg8FKuy5tsrcX92ecToY/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote(sheet_name)}"
-        raw_df = pd.read_csv(url, nrows=5)
+        # 헤더를 찾기 위해 넉넉하게 10행 읽기
+        temp_df = pd.read_csv(url, nrows=10, header=None)
         h_idx = 0
-        for i, row in raw_df.iterrows():
-            if '화주사' in row.values: h_idx = i + 1; break
+        for i, row in temp_df.iterrows():
+            if '화주사' in row.values:
+                h_idx = i
+                break
+        
         df = pd.read_csv(url, header=h_idx)
         df.columns = df.columns.str.strip()
+        # 불필요한 빈 행 제거
         df = df.dropna(subset=['화주사', '구분'])
-        return df[df['구분'].astype(str).str.lower() != 'none']
-    except: return pd.DataFrame()
+        # 'None' 텍스트 제거
+        df = df[df['구분'].astype(str).str.lower() != 'none']
+        return df
+    except Exception as e:
+        return pd.DataFrame()
 
 def to_n(x):
+    if pd.isna(x): return 0
     try:
-        if pd.isna(x) or str(x).lower() == "none": return 0
         v = str(x).replace(',', '').strip()
-        return float(v) if v not in ["-", "", "nan", "0", "0.0"] else 0
-    except: return 0
+        if v in ["-", "", "nan", "None", "0", "0.0"]: return 0
+        return float(v)
+    except:
+        return 0
 
 df_vol = load_csv_data('구글 데이터')
 df_temp = load_csv_data('임시직')
@@ -97,7 +104,7 @@ if not df_vol.empty:
         selected = st.radio("📍 화주사 목록", comps, index=None if st.session_state.view == 'home' else (comps.index(st.session_state.sel_comp) if 'sel_comp' in st.session_state else 0))
         if selected: st.session_state.view = 'detail'; st.session_state.sel_comp = selected
         mon = st.selectbox("📅 조회 월 선택", [f"{i:02d}" for i in range(1, 13)])
-        t_cols = [c for c in cols2026 if c.startswith(f"2026-{mon}")]
+        t_cols = [c for c in cols2026 if c in df_vol.columns and c.startswith(f"2026-{mon}")]
 
     if st.session_state.view == 'home':
         st.title("📊 남이천1센터 물동량 Dash Board")
@@ -105,8 +112,13 @@ if not df_vol.empty:
         res = []
         for c in comps:
             v_sum = df_vol[df_vol['화주사'] == c][t_cols].applymap(to_n).sum().sum()
-            t_sum = df_temp[df_temp['화주사'] == c][t_cols].applymap(to_n).sum().sum() if not df_temp.empty else 0
+            # 임시직 시트에서도 동일한 컬럼이 있는지 확인 후 합산
+            t_sum = 0
+            if not df_temp.empty:
+                t_cols_temp = [col for col in t_cols if col in df_temp.columns]
+                t_sum = df_temp[df_temp['화주사'] == c][t_cols_temp].applymap(to_n).sum().sum()
             res.append({"화주사": c, "물동량 합계": v_sum, "임시직 합계": t_sum})
+        
         sdf = pd.DataFrame(res)
         st.metric("📦 센터 전체 물동량 계", f"{int(sdf['물동량 합계'].sum()):,}")
         c1, c2 = st.columns([1.5, 1])
@@ -134,7 +146,7 @@ if not df_vol.empty:
                 return f"{int(num):,}" if num > 0 else "-"
             except: return str(x)
 
-        # 1. 물동량 현황 (월 합계 열 위치 고정)
+        # 1. 물동량 현황
         st.markdown("#### 1. 물동량 현황")
         v_df = df_vol[df_vol['화주사'] == menu][['구분'] + t_cols].copy()
         for c in t_cols: v_df[c] = v_df[c].apply(to_n)
@@ -146,25 +158,38 @@ if not df_vol.empty:
         v_disp = v_final[['구분', '월 합계'] + t_cols].rename(columns={c: c.split("-")[-1] for c in t_cols})
         st.dataframe(v_disp.style.apply(lambda x: ['background-color: #F0F2F6; font-weight: bold' if x.name == '월 합계' else '' for _ in x], axis=0).format(format_val), use_container_width=True, hide_index=True)
 
-        # 2. 임시직 현황 (월 합계 열 위치 고정)
+        # 2. 임시직 현황 (데이터 매칭 강화)
         st.markdown("---")
         st.markdown("#### 2. 임시직 투입 현황")
         if not df_temp.empty:
-            t_df = df_temp[df_temp['화주사'] == menu][['구분'] + t_cols].copy()
-            for c in t_cols: t_df[c] = t_df[c].apply(to_n)
+            t_cols_temp = [col for col in t_cols if col in df_temp.columns]
+            t_df = df_temp[df_temp['화주사'] == menu][['구분'] + t_cols_temp].copy()
+            for c in t_cols_temp: t_df[c] = t_df[c].apply(to_n)
+            
             t_g = t_df.groupby('구분', sort=False).sum().reset_index()
             temp_items = ["남", "여", "지게차"]
+            # 데이터가 없는 항목은 0으로 채움
             for item in temp_items:
                 if item not in t_g['구분'].values:
-                    t_g = pd.concat([t_g, pd.DataFrame([{'구분':item, **{c:0 for c in t_cols}}])], ignore_index=True)
+                    t_g = pd.concat([t_g, pd.DataFrame([{'구분':item, **{c:0 for c in t_cols_temp}}])], ignore_index=True)
+            
             t_g = t_g[t_g['구분'].isin(temp_items)].copy()
             t_g['구분'] = pd.Categorical(t_g['구분'], categories=temp_items, ordered=True)
             t_g = t_g.sort_values('구분')
-            t_g['월 합계'] = t_g[t_cols].sum(axis=1)
-            day_sum = t_g[['월 합계'] + t_cols].sum()
-            sum_row = pd.DataFrame([['일자별 합계'] + day_sum.tolist()], columns=['구분', '월 합계'] + t_cols)
-            t_final = pd.concat([t_g[['구분', '월 합계'] + t_cols], sum_row], ignore_index=True)
-            t_disp = t_final[['구분', '월 합계'] + t_cols].rename(columns={c: c.split("-")[-1] for c in t_cols})
+            t_g['월 합계'] = t_g[t_cols_temp].sum(axis=1)
+            
+            day_sum = t_g[['월 합계'] + t_cols_temp].sum()
+            sum_row = pd.DataFrame([['일자별 합계'] + day_sum.tolist()], columns=['구분', '월 합계'] + t_cols_temp)
+            t_final = pd.concat([t_g[['구분', '월 합계'] + t_cols_temp], sum_row], ignore_index=True)
+            
+            # 부족한 날짜 컬럼 보충 (물동량 시트에는 있고 임시직 시트에는 없을 경우 대비)
+            for c in t_cols:
+                if c.split("-")[-1] not in [col.split("-")[-1] for col in t_final.columns]:
+                    t_final[c] = 0
+
+            t_disp = t_final[['구분', '월 합계'] + t_cols_temp].rename(columns={c: c.split("-")[-1] for c in t_cols_temp})
             st.dataframe(t_disp.style.apply(lambda x: ['background-color: #F0F2F6; font-weight: bold' if x.name == '월 합계' else '' for _ in x], axis=0).format(format_val), use_container_width=True, hide_index=True)
+        else:
+            st.warning("임시직 시트에서 데이터를 불러오지 못했습니다. 시트 명칭이나 컬럼명을 확인해주세요.")
 
 st.sidebar.caption("© 2026 HanExpress Nam-Icheon Center")
