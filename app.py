@@ -10,14 +10,13 @@ L_DIR = "LOGO"
 C_IMG = os.path.join(L_DIR, "센터조감도.png")
 H_LOG = os.path.join(L_DIR, "한익스_LOGO.png")
 
-# 네이처리퍼블릭 로고 추가 완료
 L_MAP = {
     "DKSH L&L":"DKSH L&L_LOGO.png","대호 F&B":"대호 F&B_LOGO.png","덴비코리아":"덴비_LOGO.png",
     "막시무스코리아":"막시무스_LOGO.png","매그니프":"매그니프_LOGO.png","멘소래담":"멘소래담_LOGO.png",
     "머거본":"머거본_LOGO.png","바이오포트코리아":"바이오포트코리아_LOGO.png","시세이도":"시세이도_LOGO.png",
     "유니레버":"유니레버_LOGO.png","커머스파크":"커머스파크_LOGO.png","펄세스":"펄세스_LOGO.png",
     "PRODENTI":"프로덴티_LOGO.png","한국프리오":"한국프리오_LOGO.png","헨켈홈케어":"헨켈홈케어_LOGO.png",
-    "네이처리퍼블릭":"네이처리퍼블릭_LOGO.png"  # <-- 추가된 로고
+    "네이처리퍼블릭":"네이처리퍼블릭_LOGO.png"
 }
 
 def get_b64(p):
@@ -34,11 +33,14 @@ def apply_theme():
         background-size: cover; background-position: center; background-attachment: fixed;
     }}
     [data-testid='stSidebar'] {{ background-color: #FFFFFF !important; border-top: 25px solid #E30613 !important; border-bottom: 35px solid #002D56 !important; }}
+    
+    /* 로고 슬라이더 속도 상향 (60s -> 25s) */
     @keyframes scroll {{ 0% {{ transform: translateX(0); }} 100% {{ transform: translateX(calc(-150px * 8)); }} }}
     .slider {{ background: white; height: 100px; margin: auto; overflow: hidden; position: relative; width: 100%; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); margin-bottom: 25px; display: flex; align-items: center; }}
-    .slide-track {{ animation: scroll 60s ease-in-out infinite alternate; display: flex; width: calc(150px * 15); }}
+    .slide-track {{ animation: scroll 25s ease-in-out infinite alternate; display: flex; width: calc(150px * 16); }}
     .slide {{ height: 80px; width: 150px; display: flex; align-items: center; justify-content: center; padding: 10px; }}
     .slide img {{ max-height: 100%; max-width: 100%; object-fit: contain; }}
+    
     .top-right-logo {{ position: absolute; top: -10px; right: 0px; height: 80px; width: 200px; display: flex; justify-content: flex-end; align-items: center; z-index: 100; }}
     .top-right-logo img {{ height: 60px; width: auto; object-fit: contain; }}
     [data-testid='stMetric'] {{ background-color: white !important; padding: 20px !important; border-radius: 15px !important; box-shadow: 0 4px 15px rgba(0,0,0,0.1) !important; border-left: 8px solid #E30613 !important; }}
@@ -132,21 +134,19 @@ if not df_vol.empty:
                 return f"{int(num):,}" if num > 0 else "-"
             except: return str(x)
 
-        # 1. 물동량 현황 (월 합계 열 위치 고정: 2번째 열)
+        # 1. 물동량 현황 (월 합계 열 위치 고정)
         st.markdown("#### 1. 물동량 현황")
         v_df = df_vol[df_vol['화주사'] == menu][['구분'] + t_cols].copy()
         for c in t_cols: v_df[c] = v_df[c].apply(to_n)
         v_g = v_df.groupby('구분', sort=False).sum().reset_index()
         v_g['월 합계'] = v_g[t_cols].sum(axis=1)
-        
         v_day_sum = v_g[['월 합계'] + t_cols].sum()
         v_sum_row = pd.DataFrame([['일자별 합계'] + v_day_sum.tolist()], columns=['구분', '월 합계'] + t_cols)
         v_final = pd.concat([v_g, v_sum_row], ignore_index=True)
-        
         v_disp = v_final[['구분', '월 합계'] + t_cols].rename(columns={c: c.split("-")[-1] for c in t_cols})
         st.dataframe(v_disp.style.apply(lambda x: ['background-color: #F0F2F6; font-weight: bold' if x.name == '월 합계' else '' for _ in x], axis=0).format(format_val), use_container_width=True, hide_index=True)
 
-        # 2. 임시직 현황 (월 합계 열 위치 고정: 2번째 열)
+        # 2. 임시직 현황 (월 합계 열 위치 고정)
         st.markdown("---")
         st.markdown("#### 2. 임시직 투입 현황")
         if not df_temp.empty:
@@ -161,11 +161,9 @@ if not df_vol.empty:
             t_g['구분'] = pd.Categorical(t_g['구분'], categories=temp_items, ordered=True)
             t_g = t_g.sort_values('구분')
             t_g['월 합계'] = t_g[t_cols].sum(axis=1)
-            
             day_sum = t_g[['월 합계'] + t_cols].sum()
             sum_row = pd.DataFrame([['일자별 합계'] + day_sum.tolist()], columns=['구분', '월 합계'] + t_cols)
             t_final = pd.concat([t_g[['구분', '월 합계'] + t_cols], sum_row], ignore_index=True)
-            
             t_disp = t_final[['구분', '월 합계'] + t_cols].rename(columns={c: c.split("-")[-1] for c in t_cols})
             st.dataframe(t_disp.style.apply(lambda x: ['background-color: #F0F2F6; font-weight: bold' if x.name == '월 합계' else '' for _ in x], axis=0).format(format_val), use_container_width=True, hide_index=True)
 
