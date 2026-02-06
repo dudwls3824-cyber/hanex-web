@@ -31,11 +31,18 @@ def apply_theme():
         background-size: cover; background-position: center; background-attachment: fixed;
     }}
     [data-testid='stSidebar'] {{ background-color: #FFFFFF !important; border-top: 25px solid #E30613 !important; border-bottom: 35px solid #002D56 !important; }}
+    
+    /* 로고 슬라이더 스타일 */
     @keyframes scroll {{ 0% {{ transform: translateX(0); }} 100% {{ transform: translateX(calc(-150px * 8)); }} }}
     .slider {{ background: white; height: 100px; margin: auto; overflow: hidden; position: relative; width: 100%; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); margin-bottom: 25px; display: flex; align-items: center; }}
     .slide-track {{ animation: scroll 60s ease-in-out infinite alternate; display: flex; width: calc(150px * 15); }}
     .slide {{ height: 80px; width: 150px; display: flex; align-items: center; justify-content: center; padding: 10px; }}
     .slide img {{ max-height: 100%; max-width: 100%; object-fit: contain; }}
+    
+    /* 상세페이지 우측 상단 로고 스타일 */
+    .top-right-logo {{ position: absolute; top: -10px; right: 0px; height: 80px; width: 200px; display: flex; justify-content: flex-end; align-items: center; z-index: 100; }}
+    .top-right-logo img {{ height: 60px; width: auto; object-fit: contain; }}
+    
     [data-testid='stMetric'] {{ background-color: white !important; padding: 20px !important; border-radius: 15px !important; box-shadow: 0 4px 15px rgba(0,0,0,0.1) !important; border-left: 8px solid #E30613 !important; }}
     h1, h2, h3, h4 {{ color: #002D56 !important; font-weight: 900 !important; }}
     .logo-container {{ position: relative; width: 100%; height: 80px; display: flex; align-items: center; justify-content: center; overflow: hidden; }}
@@ -80,7 +87,7 @@ df_temp = load_csv_data('임시직')
 if not df_vol.empty:
     if 'view' not in st.session_state: st.session_state.view = 'home'
     cols2026 = [c for c in df_vol.columns if "2026-" in c]
-    # 1. 화주사 순서 복구 (시트에 있는 순서 그대로)
+    # 시트 순서 유지
     comps = list(dict.fromkeys(df_vol['화주사'].dropna().tolist()))
     
     with st.sidebar:
@@ -95,7 +102,6 @@ if not df_vol.empty:
 
     if st.session_state.view == 'home':
         st.title("📊 남이천1센터 물동량 Dash Board")
-        # 2. 홈 로고 슬라이드 복구
         render_logo_slider()
         
         res = []
@@ -115,15 +121,19 @@ if not df_vol.empty:
             sdf_fmt = sdf.copy()
             for col in ["물동량 합계", "임시직 합계"]:
                 sdf_fmt[col] = sdf_fmt[col].apply(lambda x: f"{int(x):,}" if x > 0 else "-")
-            # 열 크기 좁게 조정 및 출력
             st.dataframe(sdf_fmt, use_container_width=True, hide_index=True, height=450)
 
     else:
         # --- 상세 페이지 ---
         menu = st.session_state.sel_comp
-        # 3. 화주사 로고 복구
-        if menu in L_MAP and os.path.exists(os.path.join(L_DIR, L_MAP[menu])):
-            st.image(os.path.join(L_DIR, L_MAP[menu]), width=180)
+        
+        # 3. 로고 우측 상단 배치 및 높이(60px) 통일
+        if menu in L_MAP:
+            logo_path = os.path.join(L_DIR, L_MAP[menu])
+            b64_logo = get_b64(logo_path)
+            if b64_logo:
+                st.markdown(f'<div class="top-right-logo"><img src="data:image/png;base64,{b64_logo}"></div>', unsafe_allow_html=True)
+        
         st.markdown(f"## {menu} 상세 현황")
 
         def format_val(x):
@@ -148,8 +158,6 @@ if not df_vol.empty:
             t_df = df_temp[df_temp['화주사'] == menu][['구분'] + t_cols].copy()
             for c in t_cols: t_df[c] = t_df[c].apply(to_n)
             t_g = t_df.groupby('구분', sort=False).sum().reset_index()
-            
-            # None 완벽 제거 및 항목 고정
             temp_items = ["남", "여", "지게차"]
             for item in temp_items:
                 if item not in t_g['구분'].values:
@@ -158,11 +166,9 @@ if not df_vol.empty:
             t_g['구분'] = pd.Categorical(t_g['구분'], categories=temp_items, ordered=True)
             t_g = t_g.sort_values('구분')
             t_g['월 합계'] = t_g[t_cols].sum(axis=1)
-            
             day_sum = t_g[['월 합계'] + t_cols].sum()
             sum_row = pd.DataFrame([['일자별 합계'] + day_sum.tolist()], columns=['구분', '월 합계'] + t_cols)
             t_final = pd.concat([t_g[['구분', '월 합계'] + t_cols], sum_row], ignore_index=True).rename(columns={c: c.split("-")[-1] for c in t_cols})
-            
             st.dataframe(t_final.style.apply(lambda x: ['background-color: #F0F2F6; font-weight: bold' if x.name == '월 합계' else '' for _ in x], axis=0).format(format_val), use_container_width=True, hide_index=True)
 
 st.sidebar.caption("© 2026 HanExpress Nam-Icheon Center")
